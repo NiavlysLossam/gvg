@@ -1,0 +1,45 @@
+# Sprint Status for GVG (Gestion de Vide-Greniers)
+# Generated from epics.md
+
+generated: 09-04-2026 15:28
+last_updated: 09-04-2026 15:28
+project: gvg
+project_key: GVG
+tracking_system: file-system
+story_location: "_bmad-output/implementation-artifacts/stories"
+
+development_status:
+  epic-1: backlog
+  1-1-initialisation-projet-creation-evenement: ready-for-dev
+  1-2-calibrage-fond-de-plan-satellite-ou-salle: backlog
+  1-3-dessin-vectoriel-emplacements-leaflet-geoman: backlog
+  1-4-duplication-rapide-snap-to-grid-numerotation-auto: backlog
+  epic-1-retrospective: optional
+
+  epic-2: backlog
+  2-1-consultation-interactive-plan-public-mobile-first: backlog
+  2-2-selection-multi-places-verrouillage-temporaire-15min: backlog
+  2-3-formulaire-invite-attestation-sur-honneur: backlog
+  2-4-paiement-securise-stripe-confirmation-webhook: backlog
+  epic-2-retrospective: optional
+
+  epic-3: backlog
+  3-1-tableau-de-bord-admin-saisie-manuelle-hors-ligne: backlog
+  3-2-workflow-moderation-optionnelle-inscription: backlog
+  3-3-portail-demande-annulation-exposant: backlog
+  3-4-arbitrage-remboursements-remboursement-groupe: backlog
+  epic-3-retrospective: optional
+
+  epic-4: backlog
+  4-1-emails-transactionnels-automatises: backlog
+  4-2-rappels-automatiques-programmes-j7-j2: backlog
+  4-3-envoi-manuel-emails-groupes-variables-dynamiques: backlog
+  epic-4-retrospective: optional
+
+  epic-5: backlog
+  5-1-generation-automatique-formulaire-attestation-pdf: backlog
+  5-2-export-feuille-emargement-officielle-pdf-excel: backlog
+  5-3-scripts-deploiement-docker-compose-install-ubuntu: backlog
+  epic-5-retrospective: optional
+
+action_items: []
