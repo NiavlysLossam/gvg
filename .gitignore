@@ -25,3 +25,7 @@ tsconfig.tsbuildinfo
 # Environment variables
 .env
 .env.local
+
+# Uploads
+uploads/
+**/uploads/

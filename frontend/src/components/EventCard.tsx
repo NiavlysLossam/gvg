@@ -4,9 +4,10 @@ import { EventModel } from '../types/event';
 
 interface EventCardProps {
   event: EventModel;
+  onConfigurePlan?: (event: EventModel) => void;
 }
 
-export const EventCard: React.FC<EventCardProps> = ({ event }) => {
+export const EventCard: React.FC<EventCardProps> = ({ event, onConfigurePlan }) => {
   const startDate = new Date(event.start_date);
   const formattedDate = startDate.toLocaleDateString('fr-FR', {
     weekday: 'long',
@@ -20,10 +21,22 @@ export const EventCard: React.FC<EventCardProps> = ({ event }) => {
       <div className="space-y-4">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse" />
-              Brouillon / Configuration du plan
-            </span>
+            {event.map_type === 'geographic' && event.center_latitude != null && event.center_longitude != null ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5" />
+                Plan calibré (GPS)
+              </span>
+            ) : event.map_type === 'planar' && event.background_image_url ? (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 mr-1.5" />
+                Plan calibré (Image)
+              </span>
+            ) : (
+              <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5 animate-pulse" />
+                Brouillon / Configuration du plan
+              </span>
+            )}
             <h3 className="text-lg font-bold text-gray-900 mt-2">{event.title}</h3>
           </div>
           <div className="text-right">
@@ -74,11 +87,11 @@ export const EventCard: React.FC<EventCardProps> = ({ event }) => {
 
         <button
           type="button"
-          onClick={() => alert(`Prêt pour le calibrage du fond de plan (Story 1.2) sur l'événement : ${event.title}`)}
+          onClick={() => onConfigurePlan?.(event)}
           className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-sm font-semibold rounded-lg transition"
         >
           <Map className="w-4 h-4 text-emerald-600" />
-          <span>Configurer le plan (Story 1.2)</span>
+          <span>Configurer le plan</span>
           <ChevronRight className="w-4 h-4 ml-0.5" />
         </button>
       </div>

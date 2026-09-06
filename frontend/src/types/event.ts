@@ -9,6 +9,9 @@ export interface EventModel {
   description?: string | null;
   map_type: MapType;
   background_image_url?: string | null;
+  center_latitude?: number | null;
+  center_longitude?: number | null;
+  default_zoom?: number | null;
   price_per_meter_cents: number;
   price_per_meter: number;
   start_date: string;
@@ -32,6 +35,9 @@ export interface EventCreateInput {
   description?: string;
   map_type: MapType;
   background_image_url?: string;
+  center_latitude?: number;
+  center_longitude?: number;
+  default_zoom?: number;
   start_date: string;
   end_date: string;
   setup_start_time?: string;
@@ -43,6 +49,28 @@ export interface EventCreateInput {
   price_per_meter: number;
   manual_approval_required?: boolean;
   rules_text?: string;
+}
+
+export interface EventUpdateInput {
+  title?: string;
+  description?: string;
+  map_type?: MapType;
+  background_image_url?: string | null;
+  center_latitude?: number | null;
+  center_longitude?: number | null;
+  default_zoom?: number | null;
+  price_per_meter?: number;
+  start_date?: string;
+  end_date?: string;
+  setup_start_time?: string;
+  setup_end_time?: string;
+  public_start_time?: string;
+  public_end_time?: string;
+  location_address?: string;
+  organizer_email?: string;
+  manual_approval_required?: boolean;
+  rules_text?: string;
+  status?: EventStatus;
 }
 
 export interface EventListResponse {

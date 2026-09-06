@@ -35,6 +35,9 @@ def test_alembic_migrations_upgrade_and_downgrade():
         assert "price_per_meter_cents" in columns
         assert "map_type" in columns
         assert "status" in columns
+        assert "center_latitude" in columns
+        assert "center_longitude" in columns
+        assert "default_zoom" in columns
 
         # 2. Execute downgrade to base
         command.downgrade(alembic_cfg, "base")

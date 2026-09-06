@@ -4,9 +4,11 @@ import { EventModel } from './types/event';
 import { fetchEvents } from './lib/api';
 import { EventForm } from './components/EventForm';
 import { EventCard } from './components/EventCard';
+import { MapCalibration } from './components/MapCalibration';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'list' | 'create'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate'>('list');
+  const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [notification, setNotification] = useState<string | null>(null);
@@ -31,8 +33,21 @@ export const App: React.FC = () => {
 
   const handleCreated = (newEvent: EventModel) => {
     setEvents([newEvent, ...events]);
-    setActiveTab('list');
-    setNotification(`L'événement « ${newEvent.title} » a été créé avec succès !`);
+    setSelectedEvent(newEvent);
+    setActiveTab('calibrate');
+    setNotification(`L'événement « ${newEvent.title} » a été créé avec succès ! Vous pouvez maintenant calibrer son plan.`);
+    setTimeout(() => setNotification(null), 6000);
+  };
+
+  const handleConfigurePlan = (event: EventModel) => {
+    setSelectedEvent(event);
+    setActiveTab('calibrate');
+  };
+
+  const handleSavedCalibration = (updatedEvent: EventModel) => {
+    setEvents(events.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
+    setSelectedEvent(updatedEvent);
+    setNotification(`Le plan de l'événement « ${updatedEvent.title} » a été calibré avec succès !`);
     setTimeout(() => setNotification(null), 6000);
   };
 
@@ -63,6 +78,13 @@ export const App: React.FC = () => {
               <ListFilter className="w-4 h-4" />
               <span>Événements ({events.length})</span>
             </button>
+
+            {activeTab === 'calibrate' && selectedEvent && (
+              <div className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                <Map className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="truncate max-w-[160px]">{selectedEvent.title}</span>
+              </div>
+            )}
 
             <button
               onClick={() => setActiveTab('create')}
@@ -115,6 +137,14 @@ export const App: React.FC = () => {
           <div className="max-w-3xl mx-auto">
             <EventForm onSuccess={handleCreated} />
           </div>
+        ) : activeTab === 'calibrate' && selectedEvent ? (
+          <div className="max-w-6xl mx-auto">
+            <MapCalibration
+              event={selectedEvent}
+              onBack={() => setActiveTab('list')}
+              onSaved={handleSavedCalibration}
+            />
+          </div>
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -160,7 +190,11 @@ export const App: React.FC = () => {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {events.map((event) => (
-                  <EventCard key={event.id} event={event} />
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    onConfigurePlan={handleConfigurePlan}
+                  />
                 ))}
               </div>
             )}

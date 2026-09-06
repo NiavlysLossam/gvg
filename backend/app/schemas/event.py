@@ -17,6 +17,9 @@ class EventBase(BaseModel):
     description: Optional[str] = Field(None, max_length=5000, description="Description générale")
     map_type: Literal["geographic", "planar"] = Field("geographic", description="Type de fond de plan: 'geographic' ou 'planar'")
     background_image_url: Optional[str] = Field(None, max_length=1024, description="URL de l'image de fond pour mode planaire")
+    center_latitude: Optional[float] = Field(None, ge=-90.0, le=90.0, description="Latitude du centre de la carte")
+    center_longitude: Optional[float] = Field(None, ge=-180.0, le=180.0, description="Longitude du centre de la carte")
+    default_zoom: Optional[int] = Field(None, ge=1, le=22, description="Niveau de zoom par défaut")
     
     start_date: datetime = Field(..., description="Date et heure de début de l'événement")
     end_date: datetime = Field(..., description="Date et heure de fin de l'événement")
@@ -65,6 +68,9 @@ class EventUpdate(BaseModel):
     description: Optional[str] = Field(None, max_length=5000)
     map_type: Optional[Literal["geographic", "planar"]] = None
     background_image_url: Optional[str] = Field(None, max_length=1024)
+    center_latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
+    center_longitude: Optional[float] = Field(None, ge=-180.0, le=180.0)
+    default_zoom: Optional[int] = Field(None, ge=1, le=22)
     
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None

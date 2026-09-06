@@ -63,5 +63,13 @@ def health_check():
     }
 
 
+# Ensure uploads directory structure exists
+upload_dir = settings.upload_dir_path
+(upload_dir / "backgrounds").mkdir(parents=True, exist_ok=True)
+
+# Mount static files for user-uploaded assets
+from fastapi.staticfiles import StaticFiles
+app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
+
 # Mount API routers
 app.include_router(api_router, prefix=settings.API_V1_STR)

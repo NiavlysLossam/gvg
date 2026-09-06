@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, Integer, DateTime, Boolean, func, Uuid
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, func, Uuid
 from app.core.database import Base
 
 
@@ -18,6 +18,9 @@ class Event(Base):
     description = Column(Text, nullable=True)
     map_type = Column(String(50), nullable=False, default="geographic")
     background_image_url = Column(String(1024), nullable=True)
+    center_latitude = Column(Float, nullable=True)
+    center_longitude = Column(Float, nullable=True)
+    default_zoom = Column(Integer, nullable=True, default=16)
     price_per_meter_cents = Column(Integer, nullable=False)
     
     # Dates and schedule

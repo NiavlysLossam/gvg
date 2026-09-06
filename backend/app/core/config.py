@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import List, Union
 from pydantic import AnyHttpUrl, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -10,6 +11,17 @@ class Settings(BaseSettings):
 
     # Database
     DATABASE_URL: str = "postgresql+psycopg://gvg:gvg_secret@localhost:5432/gvg"
+    
+    # Uploads
+    UPLOAD_DIR: str = "uploads"
+
+    @property
+    def upload_dir_path(self) -> Path:
+        p = Path(self.UPLOAD_DIR)
+        if not p.is_absolute():
+            backend_root = Path(__file__).resolve().parent.parent.parent
+            p = backend_root / self.UPLOAD_DIR
+        return p
     
     # CORS
     CORS_ORIGINS: List[str] = [
