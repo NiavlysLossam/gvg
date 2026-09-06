@@ -1,0 +1,42 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gvg-backend"
+version = "0.1.0"
+description = "GVG (Gestion de Vide-Greniers) - Backend API"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.2.0",
+    "sqlalchemy>=2.0.30",
+    "geoalchemy2>=0.15.0",
+    "alembic>=1.13.0",
+    "psycopg[binary]>=3.1.18",
+    "python-slugify>=8.0.4",
+    "python-dateutil>=2.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "httpx>=0.27.0",
+    "pytest>=8.2.0",
+    "pytest-asyncio>=0.23.0",
+    "aiosqlite>=0.20.0",
+]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q"
+testpaths = [
+    "tests",
+]
+pythonpath = [
+    ".",
+    "app"
+]
+

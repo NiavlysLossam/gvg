@@ -1,3 +1,27 @@
 # BMAD (local only) - Commented out for config repo tracking
 # .bmad-core/
 .bmad-*/
+
+# Virtual environment and local tools
+.venv/
+.tools/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+tsconfig.tsbuildinfo
+
+# Environment variables
+.env
+.env.local

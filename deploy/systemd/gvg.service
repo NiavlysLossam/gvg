@@ -1,0 +1,18 @@
+[Unit]
+Description=GVG (Gestion de Vide-Greniers) Backend Service
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=gvg
+Group=gvg
+WorkingDirectory=/opt/gvg/backend
+Environment="PATH=/opt/gvg/backend/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
+EnvironmentFile=/opt/gvg/backend/.env
+ExecStart=/opt/gvg/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 2
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+
