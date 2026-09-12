@@ -553,6 +553,24 @@ def get_public_order(
             detail="Accès refusé : jeton de commande invalide",
         )
 
+    # Resilience: If order is pending and has a PaymentIntent, verify with Stripe (vital for local dev / webhook delay)
+    if order.status == "pending" and order.stripe_payment_intent_id and settings.STRIPE_SECRET_KEY:
+        try:
+            import stripe
+            stripe.api_key = settings.STRIPE_SECRET_KEY
+            pi = stripe.PaymentIntent.retrieve(order.stripe_payment_intent_id)
+            if getattr(pi, "status", None) == "succeeded":
+                stripe_service.confirm_order_from_payment_intent(
+                    db,
+                    payment_intent_id=order.stripe_payment_intent_id,
+                    order_id=str(order.id),
+                    amount_received=getattr(pi, "amount_received", None),
+                    currency=getattr(pi, "currency", None),
+                )
+                db.refresh(order)
+        except Exception:
+            pass
+
     return order
 
 
