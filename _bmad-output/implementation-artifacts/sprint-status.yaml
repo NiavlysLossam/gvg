@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-13-2026 01:14
+last_updated: 09-13-2026 01:27
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -22,7 +22,7 @@ development_status:
   2-3-formulaire-invite-attestation-sur-honneur: done
   2-4-paiement-securise-stripe-confirmation-webhook: done
 
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
 
   epic-3: backlog
   3-1-tableau-de-bord-admin-saisie-manuelle-hors-ligne: backlog
@@ -58,3 +58,17 @@ action_items:
     owner: "Dev Frontend"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-12.md"
+  - id: "epic-2-retro-item-3-scinder-backend-app-api-v1-endpoints-pub"
+    epic: 2
+    action: "Scinder backend/app/api/v1/endpoints/public.py en sous-modules pour limiter
+      la taille du contrôleur avant l'Epic 4"
+    owner: "Dev Backend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-13.md"
+  - id: "epic-2-retro-item-4-documenter-et-ajouter-un-log-clair-au-dé"
+    epic: 2
+    action: "Documenter et ajouter un log clair au démarrage si STRIPE_WEBHOOK_SECRET
+      n'est pas configuré en production"
+    owner: "Dev Backend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-13.md"
