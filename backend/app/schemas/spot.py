@@ -123,6 +123,98 @@ class SpotUpdate(BaseModel):
         return self
 
 
+class SpotBatchCreate(BaseModel):
+    spots: List[SpotCreate] = Field(
+        ..., min_length=1, max_length=500, description="Liste des stands à créer"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_from_features(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "spots" in data:
+                return data
+            if "features" in data:
+                return {"spots": data["features"]}
+        elif isinstance(data, list):
+            return {"spots": data}
+        return data
+
+
+class SpotBatchCreateResponse(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: List[SpotFeature] = []
+    created_count: int = 0
+
+
+class SpotRenumberItem(BaseModel):
+    spot_id: uuid.UUID = Field(..., description="Identifiant unique du stand")
+    label: str = Field(..., min_length=1, max_length=100, description="Nouveau libellé du stand")
+
+    @field_validator("label")
+    @classmethod
+    def validate_label_not_whitespace(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Le libellé ne peut pas être vide")
+        return stripped
+
+
+class SpotBatchRenumber(BaseModel):
+    spot_ids: Optional[List[uuid.UUID]] = Field(
+        None, max_length=500, description="Liste ordonnée des identifiants de stands à renuméroter"
+    )
+    prefix: Optional[str] = Field(None, max_length=80, description="Préfixe d'allée (ex: 'Allée A - ')")
+    start_number: Optional[int] = Field(1, ge=0, description="Numéro de départ (ex: 1)")
+    zero_padding: Optional[int] = Field(2, ge=0, le=10, description="Longueur du padding zéro (ex: 2 pour 01)")
+    renumberings: Optional[List[SpotRenumberItem]] = Field(
+        None, max_length=500, description="Liste explicite d'associations stand -> nouveau libellé"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_aliases(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            data_copy = dict(data)
+            if "pad" in data_copy and "zero_padding" not in data_copy:
+                data_copy["zero_padding"] = data_copy.pop("pad")
+            if "start" in data_copy and "start_number" not in data_copy:
+                data_copy["start_number"] = data_copy.pop("start")
+            return data_copy
+        return data
+
+    @model_validator(mode="after")
+    def validate_payload(self) -> "SpotBatchRenumber":
+        if not self.spot_ids and not self.renumberings:
+            raise ValueError("Au moins 'spot_ids' ou 'renumberings' doit être fourni")
+        if self.spot_ids is not None and len(self.spot_ids) == 0:
+            raise ValueError("'spot_ids' ne peut pas être vide")
+        if self.renumberings is not None and len(self.renumberings) == 0:
+            raise ValueError("'renumberings' ne peut pas être vide")
+        if self.spot_ids is not None:
+            if len(self.spot_ids) != len(set(self.spot_ids)):
+                raise ValueError("La liste 'spot_ids' contient des identifiants de stands dupliqués")
+            prefix_len = len(self.prefix or "")
+            pad = self.zero_padding if self.zero_padding is not None else 2
+            max_num = (self.start_number or 1) + len(self.spot_ids) - 1
+            max_num_len = max(len(str(max_num)), pad)
+            if prefix_len + max_num_len > 100:
+                raise ValueError("Le libellé généré dépasserait la longueur maximale de 100 caractères")
+        if self.renumberings is not None:
+            seen_ids = set()
+            for item in self.renumberings:
+                if item.spot_id in seen_ids:
+                    raise ValueError("La liste 'renumberings' contient des identifiants de stands dupliqués")
+                seen_ids.add(item.spot_id)
+        return self
+
+
+class SpotBatchRenumberResponse(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: List[SpotFeature] = []
+    updated_count: int = 0
+
+
 # Geometry helper utilities
 def geojson_to_wkt_polygon(polygon: Union[GeoJSONPolygon, dict]) -> str:
     """Converts a GeoJSON Polygon coordinates array to WKT POLYGON((x y, ...))."""

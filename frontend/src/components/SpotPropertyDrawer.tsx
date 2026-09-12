@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Tag, Ruler, Euro, Trash2, Check, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Tag, Ruler, Euro, Trash2, Check, AlertCircle, Sparkles, Copy } from 'lucide-react';
 import { SpotFeature } from '../types/spot';
 
 export interface SpotFormData {
@@ -18,6 +18,7 @@ interface SpotPropertyDrawerProps {
   onClose: () => void;
   onSave: (data: SpotFormData) => Promise<void>;
   onDelete?: (spotId: string) => Promise<void>;
+  onOpenDuplicateModal?: (spot: SpotFeature) => void;
   isSaving: boolean;
   isDeleting: boolean;
 }
@@ -31,6 +32,7 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
   onClose,
   onSave,
   onDelete,
+  onOpenDuplicateModal,
   isSaving,
   isDeleting,
 }) => {
@@ -293,6 +295,20 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
             )}
           </div>
         </div>
+
+        {/* Duplication action for existing spot */}
+        {!isNew && spot && onOpenDuplicateModal && (
+          <div className="pt-2">
+            <button
+              type="button"
+              onClick={() => onOpenDuplicateModal(spot)}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-xl text-xs font-bold transition shadow-xs"
+            >
+              <Copy className="w-4 h-4 text-emerald-600" />
+              <span>Dupliquer ce stand (× N)</span>
+            </button>
+          </div>
+        )}
 
         {/* Delete confirmation or action button */}
         {!isNew && spot && onDelete && (

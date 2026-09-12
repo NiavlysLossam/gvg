@@ -11,11 +11,32 @@ import {
   CheckCircle2,
   AlertCircle,
   RefreshCw,
+  Copy,
+  Hash,
+  Magnet,
+  CheckSquare,
+  Trash2,
+  X,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
-import { SpotFeature, GeoJSONPolygon } from '../types/spot';
-import { fetchSpots, createSpot, updateSpot, deleteSpot, getImageUrl } from '../lib/api';
+import {
+  SpotFeature,
+  GeoJSONPolygon,
+  SpotCreateInput,
+  SpotBatchRenumberInput,
+} from '../types/spot';
+import {
+  fetchSpots,
+  createSpot,
+  updateSpot,
+  deleteSpot,
+  createSpotsBatch,
+  renumberSpotsBatch,
+  getImageUrl,
+} from '../lib/api';
 import { SpotPropertyDrawer, SpotFormData } from './SpotPropertyDrawer';
+import { DuplicateSpotModal } from './DuplicateSpotModal';
+import { BatchRenumberModal } from './BatchRenumberModal';
 
 interface SpotEditorProps {
   event: EventModel;
@@ -69,6 +90,28 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
   const [provisionalGeometry, setProvisionalGeometry] = useState<GeoJSONPolygon | null>(null);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // Multi-selection state
+  const [selectedSpotIds, setSelectedSpotIds] = useState<string[]>([]);
+  const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
+  const isMultiSelectModeRef = useRef<boolean>(false);
+  isMultiSelectModeRef.current = isMultiSelectMode;
+
+  // Duplication modal state
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState<boolean>(false);
+  const [spotToDuplicate, setSpotToDuplicate] = useState<SpotFeature | null>(null);
+  const [isDuplicating, setIsDuplicating] = useState<boolean>(false);
+
+  // Batch renumbering modal state
+  const [isBatchRenumberModalOpen, setIsBatchRenumberModalOpen] = useState<boolean>(false);
+  const [isBatchRenumbering, setIsBatchRenumbering] = useState<boolean>(false);
+
+  // Magnetic snapping state
+  const [snapEnabled, setSnapEnabled] = useState<boolean>(true);
+  const [snapDistance, setSnapDistance] = useState<number>(15);
+
+  // Batch deleting state
+  const [isBatchDeleting, setIsBatchDeleting] = useState<boolean>(false);
 
   // Tile layer state for outdoor mode
   const [tileLayerType, setTileLayerType] = useState<'osm' | 'satellite'>('osm');
@@ -181,6 +224,98 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
     setSelectedSpot(null);
     setProvisionalGeometry(null);
   };
+
+  // Open duplication dialog for a spot
+  const handleOpenDuplicate = (spot: SpotFeature) => {
+    setSpotToDuplicate(spot);
+    setIsDuplicateModalOpen(true);
+  };
+
+  // Execute batch duplication
+  const handleDuplicateSpots = async (newSpots: SpotCreateInput[]) => {
+    setIsDuplicating(true);
+    try {
+      const res = await createSpotsBatch(event.id, { spots: newSpots });
+      setSpots((prev) => [...prev, ...res.features]);
+      setIsDuplicateModalOpen(false);
+      setSpotToDuplicate(null);
+      showToast(`${res.created_count || newSpots.length} stands créés avec succès !`);
+    } catch (err: unknown) {
+      throw err;
+    } finally {
+      setIsDuplicating(false);
+    }
+  };
+
+  // Execute batch renumbering
+  const handleRenumberSpots = async (input: SpotBatchRenumberInput) => {
+    setIsBatchRenumbering(true);
+    try {
+      const res = await renumberSpotsBatch(event.id, input);
+      const updatedMap = new Map(res.features.map((f) => [f.id, f]));
+      setSpots((prev) => prev.map((s) => updatedMap.get(s.id) || s));
+      setIsBatchRenumberModalOpen(false);
+      setSelectedSpotIds([]);
+      showToast(`${res.updated_count || res.features.length} stands renumérotés avec succès !`);
+    } catch (err: unknown) {
+      throw err;
+    } finally {
+      setIsBatchRenumbering(false);
+    }
+  };
+
+  // Execute batch deletion of selected spots
+  const handleBatchDelete = async () => {
+    if (selectedSpotIds.length === 0) return;
+    const count = selectedSpotIds.length;
+    const confirmed = window.confirm(
+      `Êtes-vous sûr de vouloir supprimer les ${count} stands sélectionnés ?`
+    );
+    if (!confirmed) return;
+
+    setIsBatchDeleting(true);
+    const deletedIds: string[] = [];
+    try {
+      for (const spotId of selectedSpotIds) {
+        await deleteSpot(event.id, spotId);
+        deletedIds.push(spotId);
+        const layer = spotLayersMapRef.current.get(spotId);
+        if (layer && spotsLayerGroupRef.current) {
+          spotsLayerGroupRef.current.removeLayer(layer);
+          spotLayersMapRef.current.delete(spotId);
+        }
+      }
+      setSpots((prev) => prev.filter((s) => !deletedIds.includes(s.id)));
+      setSelectedSpotIds([]);
+      setSelectedSpot(null);
+      setDrawerOpen(false);
+      showToast(`${count} stands supprimés avec succès.`);
+    } catch (err: unknown) {
+      if (deletedIds.length > 0) {
+        setSpots((prev) => prev.filter((s) => !deletedIds.includes(s.id)));
+        setSelectedSpotIds((prev) => prev.filter((id) => !deletedIds.includes(id)));
+      }
+      showToast(
+        err instanceof Error ? err.message : 'Erreur lors de la suppression groupée',
+        'error'
+      );
+    } finally {
+      setIsBatchDeleting(false);
+    }
+  };
+
+  // Dynamic snapping update on Leaflet-Geoman instance
+  useEffect(() => {
+    if (mapInstanceRef.current && (mapInstanceRef.current as any).pm) {
+      (mapInstanceRef.current as any).pm.setGlobalOptions({
+        snappable: snapEnabled,
+        snapDistance: snapDistance,
+        snapSegment: true,
+        snapVertex: true,
+        snapMiddle: false,
+      });
+    }
+  }, [snapEnabled, snapDistance]);
 
   // Initialize Leaflet and Leaflet-Geoman
   useEffect(() => {
@@ -296,6 +431,15 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         // ignore
       }
 
+      // Configure global magnetic snapping
+      map.pm.setGlobalOptions({
+        snappable: snapEnabled,
+        snapDistance: snapDistance,
+        snapSegment: true,
+        snapVertex: true,
+        snapMiddle: false,
+      });
+
       // Initialize Geoman drawing and editing toolbar controls (explicitly disable cutPolygon and drawText)
       map.pm.addControls({
         position: 'topleft',
@@ -311,6 +455,20 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         dragMode: true,
         rotateMode: true,
         removalMode: true,
+        snappingButton: true,
+      });
+
+      // Map background click: deselect if clicking empty space
+      map.on('click', () => {
+        if (
+          map.pm &&
+          (map.pm.globalDrawModeEnabled() || map.pm.globalRemovalModeEnabled())
+        ) {
+          return;
+        }
+        setSelectedSpotIds([]);
+        setSelectedSpot(null);
+        setDrawerOpen(false);
       });
 
       // Event: Cleanup any pending layer when a new drawing starts
@@ -416,7 +574,7 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
 
     spots.forEach((spot) => {
       const colors = statusColors[spot.properties.status] || statusColors.available;
-      const isSelected = selectedSpot?.id === spot.id;
+      const isSelected = selectedSpotIds.includes(spot.id) || selectedSpot?.id === spot.id;
 
       // Create GeoJSON layer with active highlight if selected
       const geoLayer = L.geoJSON(spot, {
@@ -425,7 +583,7 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
           fillColor: isSelected ? '#6366f1' : colors.fill,
           weight: isSelected ? 4 : 2,
           opacity: isSelected ? 1 : 0.9,
-          fillOpacity: isSelected ? 0.65 : 0.45,
+          fillOpacity: isSelected ? 0.7 : 0.45,
           dashArray: isSelected ? '4, 4' : undefined,
         },
       });
@@ -449,17 +607,35 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
           }
         );
 
-        // Click on spot to inspect / edit in drawer
-        poly.on('click', () => {
+        // Click on spot to inspect / edit in drawer or toggle in multi-selection
+        poly.on('click', (e: L.LeafletMouseEvent) => {
           if (
             map.pm &&
             (map.pm.globalDrawModeEnabled() || map.pm.globalRemovalModeEnabled())
           ) {
             return;
           }
-          setSelectedSpot(spot);
-          setIsNewSpot(false);
-          setDrawerOpen(true);
+          L.DomEvent.stopPropagation(e);
+
+          if (isMultiSelectModeRef.current || e.originalEvent?.shiftKey) {
+            setSelectedSpotIds((prev) => {
+              const exists = prev.includes(spot.id);
+              const next = exists ? prev.filter((id) => id !== spot.id) : [...prev, spot.id];
+              if (next.length === 1) {
+                const single = spots.find((s) => s.id === next[0]) || spot;
+                setSelectedSpot(single);
+              } else {
+                setSelectedSpot(null);
+                setDrawerOpen(false);
+              }
+              return next;
+            });
+          } else {
+            setSelectedSpotIds([spot.id]);
+            setSelectedSpot(spot);
+            setIsNewSpot(false);
+            setDrawerOpen(true);
+          }
         });
 
         // Save position before modification starts so we can revert on failure
@@ -504,7 +680,7 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         spotLayersMapRef.current.set(spot.id, poly);
       });
     });
-  }, [spots, event.id, mapReady, selectedSpot?.id]);
+  }, [spots, event.id, mapReady, selectedSpot?.id, selectedSpotIds]);
 
   // Switch outdoor tile layer between OSM and Satellite dynamically
   const toggleTileLayer = (type: 'osm' | 'satellite') => {
@@ -650,6 +826,77 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
             </div>
           )}
 
+          {/* Magnetic snapping control */}
+          <div className="flex items-center gap-1 bg-gray-50 border border-gray-200 rounded-xl p-1">
+            <button
+              type="button"
+              onClick={() => setSnapEnabled(!snapEnabled)}
+              className={`px-2.5 py-1 text-xs font-bold rounded-lg transition flex items-center gap-1.5 ${
+                snapEnabled
+                  ? 'bg-emerald-600 text-white shadow-xs'
+                  : 'text-gray-500 hover:text-gray-900'
+              }`}
+              title={snapEnabled ? 'Magnétisme activé' : 'Magnétisme désactivé'}
+            >
+              <Magnet className="w-3.5 h-3.5" />
+              <span>{snapEnabled ? `Snap ${snapDistance}px` : 'Snap off'}</span>
+            </button>
+            {snapEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  const nextDist =
+                    snapDistance === 10
+                      ? 15
+                      : snapDistance === 15
+                      ? 20
+                      : snapDistance === 20
+                      ? 30
+                      : 10;
+                  setSnapDistance(nextDist);
+                }}
+                className="px-2 py-1 text-xs font-bold text-gray-600 hover:text-gray-900 rounded transition bg-white border border-gray-200"
+                title="Ajuster le seuil d'aimantation (pixels)"
+              >
+                {snapDistance}px
+              </button>
+            )}
+          </div>
+
+          {/* Multi-selection toggle */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextMode = !isMultiSelectMode;
+              setIsMultiSelectMode(nextMode);
+              if (!nextMode) {
+                setSelectedSpotIds([]);
+              }
+            }}
+            className={`px-3 py-1.5 text-xs font-bold rounded-xl border transition flex items-center gap-1.5 ${
+              isMultiSelectMode
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+            }`}
+            title="Activer la sélection multiple de stands"
+          >
+            <CheckSquare className="w-3.5 h-3.5" />
+            <span>Sélection multiple {isMultiSelectMode ? 'ON' : ''}</span>
+          </button>
+
+          {/* Quick duplicate button if single spot selected */}
+          {selectedSpot && (
+            <button
+              type="button"
+              onClick={() => handleOpenDuplicate(selectedSpot)}
+              className="px-3 py-1.5 text-xs font-bold bg-emerald-50 text-emerald-800 border border-emerald-300 hover:bg-emerald-100 rounded-xl transition flex items-center gap-1.5 shadow-xs"
+              title="Dupliquer le stand sélectionné"
+            >
+              <Copy className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Dupliquer × N</span>
+            </button>
+          )}
+
           <button
             type="button"
             onClick={loadSpots}
@@ -684,9 +931,7 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         <div className="flex items-center gap-2">
           <Info className="w-4 h-4 text-emerald-600 flex-shrink-0" />
           <span>
-            <b>Mode d'emploi :</b> Utilisez l'outil <b>Rectangle</b> dans la barre d'outils à gauche
-            pour dessiner un stand. Cliquez sur un stand pour ajuster son numéro ou métrage. Utilisez{' '}
-            <b>Rotation</b> ou <b>Déplacement</b> pour orienter vos allées.
+            <b>Mode d'emploi :</b> Utilisez l'outil <b>Rectangle</b> pour dessiner un stand. Cliquez sur un stand pour le modifier ou le <b>Dupliquer (× N)</b>. Maintenez <b>Shift</b> ou activez <b>Sélection multiple</b> pour renuméroter ou supprimer des allées entières. Le magnétisme aligne automatiquement vos stands bord à bord.
           </span>
         </div>
       </div>
@@ -713,6 +958,68 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
       <div className="relative w-full rounded-2xl overflow-hidden border border-gray-200 shadow-sm bg-gray-100 h-[720px]">
         <div ref={mapContainerRef} className="w-full h-full z-10" />
 
+        {/* Floating Multi-Selection Action Bar */}
+        {selectedSpotIds.length > 0 && (
+          <div className="absolute bottom-6 left-1/2 z-30 bg-white/95 backdrop-blur-md border border-gray-200 shadow-xl rounded-2xl px-5 py-3 flex items-center gap-4 animate-slide-up-center">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-indigo-600 animate-pulse" />
+              <span className="text-xs font-black text-gray-900">
+                {selectedSpotIds.length}{' '}
+                {selectedSpotIds.length === 1 ? 'stand sélectionné' : 'stands sélectionnés'}
+              </span>
+            </div>
+
+            <div className="h-4 w-px bg-gray-200" />
+
+            <div className="flex items-center gap-2">
+              {selectedSpotIds.length === 1 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const sp = spots.find((s) => s.id === selectedSpotIds[0]);
+                    if (sp) handleOpenDuplicate(sp);
+                  }}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Copy className="w-3.5 h-3.5" />
+                  <span>Dupliquer × N</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setIsBatchRenumberModalOpen(true)}
+                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Hash className="w-3.5 h-3.5" />
+                <span>Renuméroter ({selectedSpotIds.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleBatchDelete}
+                disabled={isBatchDeleting}
+                className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow-xs"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Supprimer ({selectedSpotIds.length})</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedSpotIds([]);
+                  setSelectedSpot(null);
+                }}
+                className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition"
+                title="Désélectionner tout"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Floating Property Drawer */}
         <SpotPropertyDrawer
           isOpen={drawerOpen}
@@ -723,10 +1030,35 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
           onClose={handleCloseDrawer}
           onSave={handleSaveSpot}
           onDelete={handleDeleteSpot}
+          onOpenDuplicateModal={handleOpenDuplicate}
           isSaving={isSaving}
           isDeleting={isDeleting}
         />
       </div>
+
+      {/* Duplicate Spot Modal */}
+      <DuplicateSpotModal
+        isOpen={isDuplicateModalOpen}
+        sourceSpot={spotToDuplicate}
+        eventPricePerMeterCents={event.price_per_meter_cents}
+        onClose={() => {
+          setIsDuplicateModalOpen(false);
+          setSpotToDuplicate(null);
+        }}
+        onDuplicate={handleDuplicateSpots}
+        isDuplicating={isDuplicating}
+      />
+
+      {/* Batch Renumber Modal */}
+      <BatchRenumberModal
+        isOpen={isBatchRenumberModalOpen}
+        selectedSpots={selectedSpotIds
+          .map((id) => spots.find((s) => s.id === id))
+          .filter((s): s is SpotFeature => s !== undefined)}
+        onClose={() => setIsBatchRenumberModalOpen(false)}
+        onRenumber={handleRenumberSpots}
+        isRenumbering={isBatchRenumbering}
+      />
 
       {/* Custom Styles for spot labels on Leaflet canvas */}
       <style>{`
@@ -741,16 +1073,18 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         .spot-label-tooltip::before {
           display: none !important;
         }
-        @keyframes slideIn {
+        @keyframes slideInUp {
           from {
-            transform: translateX(100%);
+            transform: translate(-50%, 20px);
+            opacity: 0;
           }
           to {
-            transform: translateX(0);
+            transform: translate(-50%, 0);
+            opacity: 1;
           }
         }
-        .animate-slide-in {
-          animation: slideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        .animate-slide-up-center {
+          animation: slideInUp 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
     </div>

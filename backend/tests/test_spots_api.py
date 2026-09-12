@@ -428,3 +428,359 @@ def test_delete_reserved_spot_rejected(client: TestClient):
     assert "réservé" in del_res.json()["detail"]
 
 
+def test_batch_create_spots_success(client: TestClient):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    spots_payload = []
+    for i in range(1, 11):
+        x_offset = i * 0.005
+        spot_item = {
+            "label": f"Allée A - {i:02d}",
+            "linear_meters": 2.0,
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [
+                    [
+                        [-2.025 + x_offset, 48.650],
+                        [-2.020 + x_offset, 48.650],
+                        [-2.020 + x_offset, 48.652],
+                        [-2.025 + x_offset, 48.652],
+                        [-2.025 + x_offset, 48.650],
+                    ]
+                ],
+            },
+        }
+        # Explicit price override on the first spot to verify it overrides linear meters calculation
+        if i == 1:
+            spot_item["price_cents"] = 3500
+        spots_payload.append(spot_item)
+
+    res = client.post(f"/api/v1/events/{event_id}/spots/batch", json={"spots": spots_payload})
+    assert res.status_code == 201, res.text
+    data = res.json()
+    assert data["type"] == "FeatureCollection"
+    assert data["created_count"] == 10
+    assert len(data["features"]) == 10
+
+    for idx, feature in enumerate(data["features"], start=1):
+        expected_label = f"Allée A - {idx:02d}"
+        assert feature["properties"]["label"] == expected_label
+        assert feature["properties"]["linear_meters"] == 2.0
+        if idx == 1:
+            assert feature["properties"]["price_cents"] == 3500
+            assert feature["properties"]["price"] == 35.0
+        else:
+            # 2.0m * 1000 cents = 2000 cents
+            assert feature["properties"]["price_cents"] == 2000
+            assert feature["properties"]["price"] == 20.0
+
+    # Verify all 10 are retrieved by GET
+    list_res = client.get(f"/api/v1/events/{event_id}/spots")
+    assert len(list_res.json()["features"]) == 10
+
+
+def test_batch_create_spots_duplicate_within_batch_rollback(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    spots_payload = [
+        {
+            "label": "Stand X",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+        {
+            "label": "Stand X",  # duplicate
+            "linear_meters": 3.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    ]
+
+    res = client.post(f"/api/v1/events/{event_id}/spots/batch", json={"spots": spots_payload})
+    assert res.status_code == 409
+    assert "Stand X" in res.json()["detail"]
+
+    # Verify zero spots were created
+    list_res = client.get(f"/api/v1/events/{event_id}/spots")
+    assert len(list_res.json()["features"]) == 0
+
+
+def test_batch_create_spots_duplicate_with_existing_spot_rollback(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    # Create initial spot
+    client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "Allée A - 02",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+
+    # Attempt batch creating 3 spots including duplicate "Allée A - 02"
+    batch_payload = [
+        {
+            "label": "Allée A - 01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+        {
+            "label": "Allée A - 02",  # Collision!
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+        {
+            "label": "Allée A - 03",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    ]
+
+    res = client.post(f"/api/v1/events/{event_id}/spots/batch", json={"spots": batch_payload})
+    assert res.status_code == 409
+    assert "Allée A - 02" in res.json()["detail"]
+
+    # Verify only initial spot remains, none of the batch spots were inserted
+    list_res = client.get(f"/api/v1/events/{event_id}/spots")
+    features = list_res.json()["features"]
+    assert len(features) == 1
+    assert features[0]["properties"]["label"] == "Allée A - 02"
+
+
+def test_batch_create_spots_planar_coordinates(client: TestClient):
+    event = create_sample_event(client, map_type="planar")
+    event_id = event["id"]
+
+    planar_coords = [
+        [[100.0, 150.0], [200.0, 150.0], [200.0, 250.0], [100.0, 250.0], [100.0, 150.0]]
+    ]
+    batch_payload = [
+        {
+            "label": "Salle Stand 1",
+            "linear_meters": 3.0,
+            "geometry": {"type": "Polygon", "coordinates": planar_coords},
+        }
+    ]
+
+    res = client.post(f"/api/v1/events/{event_id}/spots/batch", json={"spots": batch_payload})
+    assert res.status_code == 201
+    assert res.json()["features"][0]["geometry"]["coordinates"] == planar_coords
+
+
+def test_batch_renumber_sequential_with_prefix_and_padding(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    # Create 3 spots with provisional labels
+    created_ids = []
+    for i in range(1, 4):
+        create_res = client.post(
+            f"/api/v1/events/{event_id}/spots",
+            json={
+                "label": f"Old {i}",
+                "linear_meters": 2.0,
+                "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+            },
+        )
+        created_ids.append(create_res.json()["id"])
+
+    # Renumber with prefix, start=1, zero_padding=2
+    renumber_res = client.post(
+        f"/api/v1/events/{event_id}/spots/batch-renumber",
+        json={
+            "spot_ids": created_ids,
+            "prefix": "Allée B - ",
+            "start_number": 1,
+            "zero_padding": 2,
+        },
+    )
+    assert renumber_res.status_code == 200, renumber_res.text
+    data = renumber_res.json()
+    assert data["updated_count"] == 3
+    assert [f["properties"]["label"] for f in data["features"]] == [
+        "Allée B - 01",
+        "Allée B - 02",
+        "Allée B - 03",
+    ]
+
+
+def test_batch_renumber_two_phase_swap_and_shift(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    # Create spots "1", "2", "3"
+    ids = []
+    for lbl in ["1", "2", "3"]:
+        res = client.post(
+            f"/api/v1/events/{event_id}/spots",
+            json={
+                "label": lbl,
+                "linear_meters": 2.0,
+                "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+            },
+        )
+        ids.append(res.json()["id"])
+
+    # Shift labels: spot 1 -> 2, spot 2 -> 3, spot 3 -> 1
+    # This would fail with UniqueConstraint if not done in two phases
+    mapping = [
+        {"spot_id": ids[0], "label": "2"},
+        {"spot_id": ids[1], "label": "3"},
+        {"spot_id": ids[2], "label": "1"},
+    ]
+
+    renumber_res = client.post(
+        f"/api/v1/events/{event_id}/spots/batch-renumber",
+        json={"renumberings": mapping},
+    )
+    assert renumber_res.status_code == 200, renumber_res.text
+    labels = [f["properties"]["label"] for f in renumber_res.json()["features"]]
+    assert labels == ["2", "3", "1"]
+
+
+def test_batch_renumber_conflict_with_existing_spot_rollback(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    # Create an existing spot "Occupied"
+    client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "Occupied",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+
+    # Create two spots "ToRenumber1" and "ToRenumber2"
+    res1 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "ToRenumber1",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    target_id1 = res1.json()["id"]
+
+    res2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "ToRenumber2",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    target_id2 = res2.json()["id"]
+
+    # Attempt renumbering ToRenumber1 to "ValidLabel" and ToRenumber2 to "Occupied"
+    # -> HTTP 409, and BOTH spots must roll back atomically!
+    renumber_res = client.post(
+        f"/api/v1/events/{event_id}/spots/batch-renumber",
+        json={
+            "renumberings": [
+                {"spot_id": target_id1, "label": "ValidLabel"},
+                {"spot_id": target_id2, "label": "Occupied"},
+            ],
+        },
+    )
+    assert renumber_res.status_code == 409
+    assert "Occupied" in renumber_res.json()["detail"]
+
+    # Verify NEITHER label changed (atomic rollback)
+    check1 = client.get(f"/api/v1/events/{event_id}/spots/{target_id1}")
+    assert check1.json()["properties"]["label"] == "ToRenumber1"
+
+    check2 = client.get(f"/api/v1/events/{event_id}/spots/{target_id2}")
+    assert check2.json()["properties"]["label"] == "ToRenumber2"
+
+
+def test_batch_renumber_cross_event_isolation(client: TestClient):
+    event1 = create_sample_event(client, title="Event 1")
+    event2 = create_sample_event(client, title="Event 2")
+
+    # Spot in Event 2
+    res2 = client.post(
+        f"/api/v1/events/{event2['id']}/spots",
+        json={
+            "label": "SpotEv2",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_ev2_id = res2.json()["id"]
+
+    # Try renumbering spot of Event 2 via Event 1 endpoint -> 400 Bad Request
+    renumber_res = client.post(
+        f"/api/v1/events/{event1['id']}/spots/batch-renumber",
+        json={
+            "renumberings": [{"spot_id": spot_ev2_id, "label": "NewEv1"}],
+        },
+    )
+    assert renumber_res.status_code == 400
+    assert "n'appartient pas" in renumber_res.json()["detail"]
+
+
+def test_batch_renumber_duplicate_spot_ids_rejected(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "Spot1",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = res.json()["id"]
+
+    # Duplicate in spot_ids
+    res_dup_ids = client.post(
+        f"/api/v1/events/{event_id}/spots/batch-renumber",
+        json={"spot_ids": [spot_id, spot_id], "prefix": "A-"},
+    )
+    assert res_dup_ids.status_code == 422
+    assert "dupliqués" in res_dup_ids.text
+
+    # Duplicate in renumberings
+    res_dup_renum = client.post(
+        f"/api/v1/events/{event_id}/spots/batch-renumber",
+        json={
+            "renumberings": [
+                {"spot_id": spot_id, "label": "LabelA"},
+                {"spot_id": spot_id, "label": "LabelB"},
+            ]
+        },
+    )
+    assert res_dup_renum.status_code == 422
+    assert "dupliqués" in res_dup_renum.text
+
+
+def test_batch_renumber_prefix_too_long_rejected(client: TestClient):
+    event = create_sample_event(client)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "SpotLong",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = res.json()["id"]
+
+    # Prefix > 80 chars
+    long_prefix = "A" * 85
+    res_long = client.post(
+        f"/api/v1/events/{event_id}/spots/batch-renumber",
+        json={"spot_ids": [spot_id], "prefix": long_prefix},
+    )
+    assert res_long.status_code == 422
+
+
+

@@ -45,3 +45,39 @@ export interface SpotUpdateInput {
   status?: 'available' | 'locked' | 'reserved' | 'blocked';
 }
 
+export type DuplicateDirection =
+  | 'stand_axis_right'
+  | 'stand_axis_left'
+  | 'stand_axis_front'
+  | 'stand_axis_back'
+  | 'cardinal_east'
+  | 'cardinal_west'
+  | 'cardinal_north'
+  | 'cardinal_south';
+
+export interface SpotBatchCreateInput {
+  spots: SpotCreateInput[];
+}
+
+export interface SpotBatchCreateResponse extends SpotFeatureCollection {
+  created_count: number;
+}
+
+export interface SpotRenumberItem {
+  spot_id: string;
+  label: string;
+}
+
+export interface SpotBatchRenumberInput {
+  spot_ids?: string[];
+  prefix?: string;
+  start_number?: number;
+  zero_padding?: number;
+  renumberings?: SpotRenumberItem[];
+}
+
+export interface SpotBatchRenumberResponse extends SpotFeatureCollection {
+  updated_count: number;
+}
+
+

@@ -1,5 +1,14 @@
 import { EventCreateInput, EventUpdateInput, EventListResponse, EventModel } from '../types/event';
-import { SpotCreateInput, SpotUpdateInput, SpotFeature, SpotFeatureCollection } from '../types/spot';
+import {
+  SpotCreateInput,
+  SpotUpdateInput,
+  SpotFeature,
+  SpotFeatureCollection,
+  SpotBatchCreateInput,
+  SpotBatchCreateResponse,
+  SpotBatchRenumberInput,
+  SpotBatchRenumberResponse,
+} from '../types/spot';
 
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
 
@@ -190,6 +199,61 @@ export async function deleteSpot(eventIdOrSlug: string, spotId: string): Promise
     }
     throw new ApiError(response.status, detail);
   }
+}
+
+export async function createSpotsBatch(
+  eventIdOrSlug: string,
+  data: SpotBatchCreateInput
+): Promise<SpotBatchCreateResponse> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/batch`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la création groupée des stands';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function renumberSpotsBatch(
+  eventIdOrSlug: string,
+  data: SpotBatchRenumberInput
+): Promise<SpotBatchRenumberResponse> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/batch-renumber`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la renumérotation des stands';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
 }
 
 
