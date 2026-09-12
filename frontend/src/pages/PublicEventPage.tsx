@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { AlertCircle, AlertTriangle, ArrowLeft, Map as MapIcon } from 'lucide-react';
-import { PublicEventResponse, PublicSpotFeature } from '../types/public';
-import { fetchPublicEvent, fetchPublicSpots } from '../lib/api';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import { AlertCircle, AlertTriangle, ArrowLeft, Map as MapIcon, X } from 'lucide-react';
+import { PublicEventResponse, PublicSpotFeature, CartResponse } from '../types/public';
+import { fetchPublicEvent, fetchPublicSpots, fetchCart, lockSpot, unlockSpot } from '../lib/api';
+import { getSessionToken } from '../lib/session';
 import { PublicHeader } from '../components/public/PublicHeader';
 import { PublicMap } from '../components/public/PublicMap';
+import { CartDrawer } from '../components/public/CartDrawer';
 import { SpotDetailDrawer } from '../components/public/SpotDetailDrawer';
 
 interface PublicEventPageProps {
@@ -11,17 +13,60 @@ interface PublicEventPageProps {
   onNavigateHome?: () => void;
 }
 
+interface ToastState {
+  id: number;
+  message: string;
+  type: 'error' | 'warning' | 'info' | 'success';
+}
+
+function extractErrorDetail(err: any, defaultMsg: string): string {
+  if (!err) return defaultMsg;
+  const detail = err.detail || err.message;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail) && detail.length > 0) {
+    return detail[0]?.msg || JSON.stringify(detail[0]) || defaultMsg;
+  }
+  if (typeof detail === 'object') {
+    return JSON.stringify(detail);
+  }
+  return defaultMsg;
+}
+
 export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNavigateHome }) => {
   const [event, setEvent] = useState<PublicEventResponse | null>(null);
   const [spots, setSpots] = useState<PublicSpotFeature[]>([]);
+  const [cart, setCart] = useState<CartResponse | null>(null);
   const [selectedSpot, setSelectedSpot] = useState<PublicSpotFeature | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [notFound, setNotFound] = useState<boolean>(false);
   const [initialError, setInitialError] = useState<string | null>(null);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
+  const [removingSpotId, setRemovingSpotId] = useState<string | null>(null);
+  const [pendingSpotIds, setPendingSpotIds] = useState<Set<string>>(new Set());
+  const [toasts, setToasts] = useState<ToastState[]>([]);
 
-  // Initial event + spots load
+  // Persistent anonymous session token
+  const [sessionToken] = useState<string>(() => getSessionToken());
+
+  // Set of spot IDs currently in cart
+  const cartSpotIds = useMemo(() => {
+    return new Set(cart?.spots?.map((s) => s.id) || []);
+  }, [cart]);
+
+  // Toast notifications helper
+  const showToast = useCallback(
+    (message: string, type: 'error' | 'warning' | 'info' | 'success' = 'info') => {
+      const id = Date.now() + Math.random();
+      setToasts((prev) => [...prev, { id, message, type }]);
+      setTimeout(() => {
+        setToasts((prev) => prev.filter((t) => t.id !== id));
+      }, 5000);
+    },
+    []
+  );
+
+  // Initial event + spots + cart load
   const loadInitialData = useCallback(async () => {
     setLoading(true);
     setNotFound(false);
@@ -29,22 +74,26 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
     setErrorBanner(null);
 
     try {
-      const [eventData, spotsData] = await Promise.all([
+      const [eventData, spotsData, cartData] = await Promise.all([
         fetchPublicEvent(slug),
         fetchPublicSpots(slug),
+        fetchCart(slug, sessionToken).catch(() => null),
       ]);
       setEvent(eventData);
       setSpots(spotsData.features);
+      if (cartData && cartData.total_count > 0) {
+        setCart(cartData);
+      }
     } catch (err: any) {
       if (err?.status === 404 || err?.message?.includes('introuvable')) {
         setNotFound(true);
       } else {
-        setInitialError(err?.message || "Impossible de charger le vide-grenier");
+        setInitialError(extractErrorDetail(err, 'Impossible de charger le vide-grenier'));
       }
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [slug, sessionToken]);
 
   useEffect(() => {
     loadInitialData();
@@ -57,8 +106,23 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
     }
     try {
       setIsRefreshing(true);
-      const spotsData = await fetchPublicSpots(slug);
+      const [spotsData, cartData] = await Promise.all([
+        fetchPublicSpots(slug),
+        fetchCart(slug, sessionToken).catch(() => null),
+      ]);
       setSpots(spotsData.features);
+      if (cartData) {
+        setCart((prev) => {
+          // If previous cart had items but server returned 0 items, timer expired on server
+          if (prev && prev.total_count > 0 && cartData.total_count === 0) {
+            showToast(
+              'Votre réservation temporaire a expiré, les stands ont été libérés',
+              'warning'
+            );
+          }
+          return cartData.total_count > 0 ? cartData : null;
+        });
+      }
       setSelectedSpot((curr) => {
         if (!curr) return null;
         return spotsData.features.find((s) => s.id === curr.id) || curr;
@@ -70,7 +134,7 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
     } finally {
       setIsRefreshing(false);
     }
-  }, [slug]);
+  }, [slug, sessionToken, showToast]);
 
   // Stable 10-second polling interval for real-time spots updates
   useEffect(() => {
@@ -81,12 +145,130 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
     return () => clearInterval(interval);
   }, [event?.id, pollSpots]);
 
-  // Spot selection handler
-  const handleSpotSelect = (spot: PublicSpotFeature) => {
-    setSelectedSpot(spot);
+  // Handle spot selection/toggle on map
+  const handleSpotSelect = async (spot: PublicSpotFeature) => {
+    // Guard against rapid duplicate clicks
+    if (pendingSpotIds.has(spot.id)) {
+      return;
+    }
+
+    setPendingSpotIds((prev) => new Set(prev).add(spot.id));
+    try {
+      const isInCart = cartSpotIds.has(spot.id);
+
+      // 1. If stall is already in Monique's cart: toggle unlock / deselect
+      if (isInCart) {
+        try {
+          const updatedCart = await unlockSpot(slug, spot.id, sessionToken);
+          setCart(updatedCart.total_count > 0 ? updatedCart : null);
+          setSpots((prev) =>
+            prev.map((s) =>
+              s.id === spot.id
+                ? { ...s, properties: { ...s.properties, status: 'available' } }
+                : s
+            )
+          );
+        } catch (err: any) {
+          showToast(extractErrorDetail(err, 'Impossible de retirer cet emplacement'), 'error');
+          pollSpots();
+        }
+        return;
+      }
+
+      // 2. If stall is sold or blocked
+      if (spot.properties.status === 'reserved' || spot.properties.status === 'blocked') {
+        showToast("Cet emplacement n'est plus disponible à la vente", 'warning');
+        setSelectedSpot(spot);
+        return;
+      }
+
+      // 3. If stall is available (or locked by someone else / expired)
+      try {
+        const updatedCart = await lockSpot(slug, spot.id, sessionToken);
+        setCart(updatedCart);
+        setSpots((prev) =>
+          prev.map((s) =>
+            s.id === spot.id
+              ? { ...s, properties: { ...s.properties, status: 'locked' } }
+              : s
+          )
+        );
+        // Close inspection drawer if open
+        setSelectedSpot(null);
+      } catch (err: any) {
+        const detailStr = extractErrorDetail(err, 'Impossible de réserver cet emplacement');
+        if (err?.status === 409 || detailStr.includes('autre visiteur')) {
+          showToast(
+            detailStr || 'Ce stand est en cours de commande par un autre visiteur',
+            'warning'
+          );
+        } else if (detailStr.includes('disponible')) {
+          showToast(detailStr || "Cet emplacement n'est plus disponible à la vente", 'warning');
+        } else {
+          showToast(detailStr, 'error');
+        }
+        pollSpots();
+      }
+    } finally {
+      setPendingSpotIds((prev) => {
+        const next = new Set(prev);
+        next.delete(spot.id);
+        return next;
+      });
+    }
   };
 
-  // Close drawer
+  // Remove spot from Cart Drawer
+  const handleRemoveSpot = async (spotId: string) => {
+    if (pendingSpotIds.has(spotId)) {
+      return;
+    }
+    setPendingSpotIds((prev) => new Set(prev).add(spotId));
+    setRemovingSpotId(spotId);
+    try {
+      const updatedCart = await unlockSpot(slug, spotId, sessionToken);
+      setCart(updatedCart.total_count > 0 ? updatedCart : null);
+      setSpots((prev) =>
+        prev.map((s) =>
+          s.id === spotId
+            ? { ...s, properties: { ...s.properties, status: 'available' } }
+            : s
+        )
+      );
+    } catch (err: any) {
+      showToast(extractErrorDetail(err, 'Impossible de retirer ce stand'), 'error');
+      pollSpots();
+    } finally {
+      setRemovingSpotId(null);
+      setPendingSpotIds((prev) => {
+        const next = new Set(prev);
+        next.delete(spotId);
+        return next;
+      });
+    }
+  };
+
+  // Hold Timer expiration (00:00) handler
+  const handleTimerExpired = useCallback(() => {
+    setCart(null);
+    showToast(
+      'Votre réservation temporaire a expiré, les stands ont été libérés',
+      'warning'
+    );
+    pollSpots();
+  }, [pollSpots, showToast]);
+
+  // Proceed to checkout callback
+  const handleProceedToCheckout = () => {
+    const reservationUrl = `/e/${encodeURIComponent(slug)}/reservation`;
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/e/')) {
+      window.location.href = reservationUrl;
+    } else {
+      showToast('Redirection vers le formulaire de réservation...', 'info');
+    }
+  };
+
+  // Close inspection drawer
   const handleCloseDrawer = () => {
     setSelectedSpot(null);
   };
@@ -169,9 +351,38 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
   // 4. Nominal Public Map Presentation
   return (
     <div className="h-screen w-full flex flex-col bg-[#FBFBFA] overflow-hidden">
+      {/* Toast Notification Stack */}
+      <div className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 flex flex-col items-center gap-2 max-w-md w-full px-4 pointer-events-none">
+        {toasts.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto w-full px-4 py-3 rounded-2xl shadow-xl border text-sm font-semibold flex items-center gap-2.5 transition-all duration-200 ${
+              t.type === 'warning'
+                ? 'bg-amber-600 text-white border-amber-700 shadow-amber-500/20'
+                : t.type === 'error'
+                ? 'bg-red-600 text-white border-red-700 shadow-red-500/20'
+                : t.type === 'success'
+                ? 'bg-emerald-700 text-white border-emerald-800 shadow-emerald-500/20'
+                : 'bg-gray-900 text-white border-gray-800 shadow-gray-900/20'
+            }`}
+            role="alert"
+          >
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span className="flex-1 leading-snug">{t.message}</span>
+            <button
+              onClick={() => setToasts((prev) => prev.filter((item) => item.id !== t.id))}
+              className="p-1 hover:bg-white/20 rounded-lg transition"
+              aria-label="Fermer l'alerte"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* Discreet refresh error banner */}
       {errorBanner && (
-        <div className="fixed top-2 left-1/2 transform -translate-x-1/2 z-50 bg-amber-50 border border-amber-300 text-amber-900 px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-fade-in">
+        <div className="fixed top-2 left-1/2 transform -translate-x-1/2 z-40 bg-amber-50 border border-amber-300 text-amber-900 px-4 py-2 rounded-full shadow-lg text-xs font-semibold flex items-center gap-2 animate-fade-in">
           <AlertTriangle className="w-4 h-4 text-amber-600" />
           <span>{errorBanner}</span>
         </div>
@@ -186,19 +397,29 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
         />
       )}
 
-      {/* Main Map Area with flexible height */}
+      {/* Main Map Area */}
       <main className="flex-1 min-h-0 w-full relative">
         {event && (
           <PublicMap
             event={event}
             spots={spots}
             selectedSpot={selectedSpot}
+            cartSpotIds={cartSpotIds}
             onSpotSelect={handleSpotSelect}
           />
         )}
       </main>
 
-      {/* Stall Detail Drawer */}
+      {/* Collapsible Floating Cart Drawer */}
+      <CartDrawer
+        cart={cart}
+        onRemoveSpot={handleRemoveSpot}
+        onTimerExpired={handleTimerExpired}
+        onProceedToCheckout={handleProceedToCheckout}
+        removingSpotId={removingSpotId}
+      />
+
+      {/* Stall Detail Inspection Drawer (for reserved/blocked stalls) */}
       <SpotDetailDrawer
         spot={selectedSpot}
         onClose={handleCloseDrawer}
@@ -206,4 +427,5 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
     </div>
   );
 };
+
 

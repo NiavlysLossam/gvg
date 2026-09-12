@@ -8,7 +8,8 @@ import { getImageUrl } from '../../lib/api';
 interface PublicMapProps {
   event: PublicEventResponse;
   spots: PublicSpotFeature[];
-  selectedSpot: PublicSpotFeature | null;
+  selectedSpot?: PublicSpotFeature | null;
+  cartSpotIds?: Set<string>;
   onSpotSelect: (spot: PublicSpotFeature) => void;
   onMapError?: (error: string) => void;
 }
@@ -26,6 +27,7 @@ export const PublicMap: React.FC<PublicMapProps> = ({
   event,
   spots,
   selectedSpot,
+  cartSpotIds,
   onSpotSelect,
   onMapError,
 }) => {
@@ -272,18 +274,30 @@ export const PublicMap: React.FC<PublicMapProps> = ({
     };
 
     spots.forEach((spot) => {
+      const isInCart = cartSpotIds?.has(spot.id) ?? false;
       const isSelected = selectedSpot?.id === spot.id;
       const baseStyle = statusStyles[spot.properties.status] || statusStyles.available;
 
-      const style: L.PathOptions = isSelected
-        ? {
-            fillColor: '#2563EB',
-            fillOpacity: 0.8,
-            color: '#1D4ED8',
-            weight: 3.5,
-            dashArray: undefined,
-          }
-        : baseStyle;
+      let style: L.PathOptions;
+      if (isInCart) {
+        // Cobalt Blue per DESIGN.md & spec: '#2563EB', fill '#3B82F6', border '#1D4ED8' 2.5px
+        style = {
+          fillColor: '#3B82F6',
+          fillOpacity: 0.85,
+          color: '#1D4ED8',
+          weight: 2.5,
+          dashArray: undefined,
+        };
+      } else if (isSelected) {
+        // Keep status fillColor for inspected spot, only highlight border
+        style = {
+          ...baseStyle,
+          weight: 3.5,
+          color: '#1F2937',
+        };
+      } else {
+        style = baseStyle;
+      }
 
       const geoLayer = L.geoJSON(spot, {
         style,
@@ -296,11 +310,15 @@ export const PublicMap: React.FC<PublicMapProps> = ({
         // Tooltip showing label & details
         const escapedLabel = escapeHtml(spot.properties.label);
         const priceFormatted = `${spot.properties.price.toFixed(2).replace('.', ',')} €`;
+        const cartBadge = isInCart
+          ? `<div class="mt-0.5"><span class="inline-block px-1 py-0.2 bg-blue-600 text-white text-[9px] font-bold rounded">Mon panier</span></div>`
+          : '';
 
         poly.bindTooltip(
           `<div class="text-center font-bold leading-tight select-none pointer-events-none">
             <div class="text-xs text-gray-900">${escapedLabel}</div>
             <div class="text-[10px] text-gray-700 font-medium">${spot.properties.linear_meters}m • ${priceFormatted}</div>
+            ${cartBadge}
           </div>`,
           {
             permanent: true,
@@ -319,12 +337,13 @@ export const PublicMap: React.FC<PublicMapProps> = ({
         try {
           const el = (poly as any)._path as SVGElement | undefined;
           if (el) {
-            const statusFr =
-              spot.properties.status === 'available'
-                ? 'disponible'
-                : spot.properties.status === 'locked'
-                ? 'en cours de réservation'
-                : 'déjà réservé';
+            const statusFr = isInCart
+              ? 'sélectionné dans mon panier'
+              : spot.properties.status === 'available'
+              ? 'disponible'
+              : spot.properties.status === 'locked'
+              ? 'en cours de réservation'
+              : 'déjà réservé';
             el.setAttribute(
               'aria-label',
               `Emplacement ${spot.properties.label}, ${spot.properties.linear_meters} mètres, ${statusFr}`
@@ -345,7 +364,7 @@ export const PublicMap: React.FC<PublicMapProps> = ({
       initialFitDoneRef.current = event.id;
       handleRecenter();
     }
-  }, [spots, selectedSpot, mapReady, onSpotSelect, handleRecenter, event.id]);
+  }, [spots, selectedSpot, cartSpotIds, mapReady, onSpotSelect, handleRecenter, event.id]);
 
   return (
     <div className="relative w-full h-full min-h-[480px] sm:min-h-[600px] bg-[#F0FDF4] overflow-hidden select-none">

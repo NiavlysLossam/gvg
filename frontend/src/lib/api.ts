@@ -286,4 +286,93 @@ export async function fetchPublicSpots(slug: string): Promise<import('../types/p
   return response.json();
 }
 
+export async function lockSpot(
+  slug: string,
+  spotId: string,
+  sessionToken: string
+): Promise<import('../types/public').CartResponse> {
+  const response = await fetch(
+    `${API_BASE}/public/events/${encodeURIComponent(slug)}/spots/${encodeURIComponent(spotId)}/lock`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Token': sessionToken,
+      },
+      body: JSON.stringify({ session_token: sessionToken }),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Impossible de verrouiller cet emplacement';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function unlockSpot(
+  slug: string,
+  spotId: string,
+  sessionToken: string
+): Promise<import('../types/public').CartResponse> {
+  const response = await fetch(
+    `${API_BASE}/public/events/${encodeURIComponent(slug)}/spots/${encodeURIComponent(spotId)}/unlock`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Session-Token': sessionToken,
+      },
+      body: JSON.stringify({ session_token: sessionToken }),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Impossible de déverrouiller cet emplacement';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function fetchCart(
+  slug: string,
+  sessionToken: string
+): Promise<import('../types/public').CartResponse> {
+  const response = await fetch(
+    `${API_BASE}/public/events/${encodeURIComponent(slug)}/cart?session_token=${encodeURIComponent(sessionToken)}`,
+    {
+      headers: {
+        'X-Session-Token': sessionToken,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Impossible de récupérer le panier';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
 

@@ -126,6 +126,15 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
               <span className="font-semibold text-gray-800">Disponible</span>
             </div>
 
+            {/* In My Cart */}
+            <div className="flex items-center gap-1.5">
+              <span
+                className="w-3 h-3 rounded-xs bg-[#3B82F6] border border-[#1D4ED8] shadow-2xs"
+                aria-hidden="true"
+              />
+              <span className="font-semibold text-blue-700">Mon panier</span>
+            </div>
+
             {/* Locked */}
             <div className="flex items-center gap-1.5">
               <span
@@ -146,7 +155,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
           </div>
 
           <span className="text-[11px] text-gray-400 hidden md:inline">
-            Touchez un stand vert pour consulter les détails
+            Touchez un stand vert pour l'ajouter à votre panier
           </span>
         </div>
       </div>

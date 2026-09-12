@@ -53,3 +53,30 @@ export interface PublicEventResponse {
   updated_at?: string | null;
 }
 
+export interface LockSpotRequest {
+  session_token: string;
+}
+
+export interface UnlockSpotRequest {
+  session_token: string;
+}
+
+export interface CartSpotItem {
+  id: string;
+  label: string;
+  linear_meters: number;
+  price_cents: number;
+  price: number;
+  locked_until: string;
+}
+
+export interface CartResponse {
+  session_token: string;
+  spots: CartSpotItem[];
+  total_count: number;
+  total_linear_meters: number;
+  total_price_cents: number;
+  total_price: number;
+  expires_at?: string | null;
+}
+

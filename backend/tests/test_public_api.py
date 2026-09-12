@@ -320,3 +320,378 @@ def test_get_public_spots_null_locked_until_reported_as_available(client: TestCl
     feat = data["features"][0]
     assert feat["properties"]["status"] == "available"
     assert feat["properties"]["label"] == "NULL-LOCK-01"
+
+
+def test_lock_spot_success(client: TestClient, db_session: Session):
+    event = create_sample_event(client, title="Brocante Saint-Malo")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    # Create spot
+    r_spot = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "A-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    assert r_spot.status_code == 201
+    spot_id = r_spot.json()["id"]
+
+    # Lock spot
+    token = "session-visitor-1"
+    response = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/lock",
+        json={"session_token": token},
+    )
+    assert response.status_code == 200, response.text
+    cart = response.json()
+
+    assert cart["session_token"] == token
+    assert cart["total_count"] == 1
+    assert cart["total_linear_meters"] == 2.0
+    assert cart["total_price_cents"] == 800
+    assert cart["total_price"] == 8.0
+    assert cart["expires_at"] is not None
+    assert len(cart["spots"]) == 1
+    assert cart["spots"][0]["id"] == spot_id
+    assert cart["spots"][0]["label"] == "A-01"
+
+    # Verify database state
+    db_spot = db_session.query(Spot).filter(Spot.id == uuid.UUID(spot_id)).first()
+    assert db_spot.status == "locked"
+    assert db_spot.locked_by_token == token
+    assert db_spot.locked_until is not None
+    now = datetime.now(timezone.utc)
+    locked_dt = db_spot.locked_until if db_spot.locked_until.tzinfo else db_spot.locked_until.replace(tzinfo=timezone.utc)
+    assert now + timedelta(minutes=14) <= locked_dt <= now + timedelta(minutes=16)
+
+
+def test_lock_multi_spots_aggregates_cart(client: TestClient):
+    event = create_sample_event(client, title="Brocante Dinan")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    # Create 2 spots
+    r1 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "B-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    r2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "B-02",
+            "linear_meters": 3.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    id1 = r1.json()["id"]
+    id2 = r2.json()["id"]
+
+    token = "session-monique"
+    # Lock first spot
+    res1 = client.post(
+        f"/api/v1/public/events/{slug}/spots/{id1}/lock",
+        json={"session_token": token},
+    )
+    assert res1.status_code == 200
+    assert res1.json()["total_count"] == 1
+    spot1_locked_until = res1.json()["spots"][0]["locked_until"]
+
+    # Lock second spot
+    res2 = client.post(
+        f"/api/v1/public/events/{slug}/spots/{id2}/lock",
+        json={"session_token": token},
+    )
+    assert res2.status_code == 200
+    cart = res2.json()
+    assert cart["total_count"] == 2
+    assert cart["total_linear_meters"] == 5.0
+    assert cart["total_price_cents"] == 2000
+    assert cart["total_price"] == 20.0
+    assert len(cart["spots"]) == 2
+    assert cart["expires_at"] == spot1_locked_until
+
+
+def test_lock_spot_concurrent_collision_returns_409(client: TestClient, db_session: Session):
+    event = create_sample_event(client, title="Collision Event")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    r = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "C-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = r.json()["id"]
+
+    # User A locks C-01
+    res_a = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/lock",
+        json={"session_token": "token-user-a"},
+    )
+    assert res_a.status_code == 200
+
+    # User B tries to lock C-01
+    res_b = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/lock",
+        json={"session_token": "token-user-b"},
+    )
+    assert res_b.status_code == 409
+    assert res_b.json()["detail"] == "Ce stand est en cours de commande par un autre visiteur"
+
+    # Verify User A's lock is intact
+    db_spot = db_session.query(Spot).filter(Spot.id == uuid.UUID(spot_id)).first()
+    assert db_spot.locked_by_token == "token-user-a"
+
+
+def test_lock_spot_sold_or_blocked_returns_409(client: TestClient):
+    event = create_sample_event(client, title="Sold Event")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    r = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "D-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = r.json()["id"]
+
+    # Mark as reserved
+    client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"status": "reserved"},
+    )
+
+    # Attempt to lock
+    res = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/lock",
+        json={"session_token": "token-random"},
+    )
+    assert res.status_code == 409
+    assert res.json()["detail"] == "Cet emplacement n'est plus disponible à la vente"
+
+
+def test_unlock_spot_success(client: TestClient, db_session: Session):
+    event = create_sample_event(client, title="Unlock Event")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    r = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "E-01",
+            "linear_meters": 2.5,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = r.json()["id"]
+
+    token = "session-e"
+    # Lock
+    res_lock = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/lock",
+        json={"session_token": token},
+    )
+    assert res_lock.status_code == 200
+    assert res_lock.json()["total_count"] == 1
+
+    # Unlock
+    res_unlock = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/unlock",
+        json={"session_token": token},
+    )
+    assert res_unlock.status_code == 200
+    cart = res_unlock.json()
+    assert cart["total_count"] == 0
+    assert len(cart["spots"]) == 0
+
+    # Verify spot is now available in DB
+    db_spot = db_session.query(Spot).filter(Spot.id == uuid.UUID(spot_id)).first()
+    assert db_spot.status == "available"
+    assert db_spot.locked_until is None
+    assert db_spot.locked_by_token is None
+
+
+def test_unlock_spot_locked_by_other_user_fails(client: TestClient):
+    event = create_sample_event(client, title="Unauthorized Unlock")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    r = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "F-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = r.json()["id"]
+
+    # Lock by user A
+    client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/lock",
+        json={"session_token": "user-a"},
+    )
+
+    # User B tries to unlock
+    res = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot_id}/unlock",
+        json={"session_token": "user-b"},
+    )
+    assert res.status_code == 409
+    assert res.json()["detail"] == "Ce stand est verrouillé par un autre visiteur"
+
+
+def test_lock_expired_spot_takeover(client: TestClient, db_session: Session):
+    event = create_sample_event(client, title="Takeover Event")
+    event_id = uuid.UUID(event["id"])
+    slug = event["slug"]
+
+    wkt = geojson_to_wkt_polygon({"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS})
+    expired_time = datetime.now(timezone.utc) - timedelta(minutes=5)
+    spot = Spot(
+        event_id=event_id,
+        label="EXPIRED-TAKEOVER",
+        linear_meters=2.0,
+        price_cents=800,
+        geom=wkt,
+        status="locked",
+        locked_until=expired_time,
+        locked_by_token="user-old",
+    )
+    db_session.add(spot)
+    db_session.commit()
+    db_session.refresh(spot)
+
+    # User new locks expired spot
+    res = client.post(
+        f"/api/v1/public/events/{slug}/spots/{spot.id}/lock",
+        json={"session_token": "user-new"},
+    )
+    assert res.status_code == 200
+    cart = res.json()
+    assert cart["total_count"] == 1
+    assert cart["spots"][0]["id"] == str(spot.id)
+
+    # Verify DB has user-new as owner and future locked_until
+    db_spot = db_session.query(Spot).filter(Spot.id == spot.id).first()
+    assert db_spot.locked_by_token == "user-new"
+    locked_dt = db_spot.locked_until
+    if locked_dt.tzinfo is None:
+        locked_dt = locked_dt.replace(tzinfo=timezone.utc)
+    assert locked_dt > datetime.now(timezone.utc)
+
+
+def test_get_cart_rehydration_and_expired_pruning(client: TestClient, db_session: Session):
+    event = create_sample_event(client, title="Cart Rehydration Event")
+    event_id = uuid.UUID(event["id"])
+    slug = event["slug"]
+    token = "session-rehydration"
+
+    wkt = geojson_to_wkt_polygon({"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS})
+    
+    # Active spot
+    s1 = Spot(
+        event_id=event_id,
+        label="ACTIVE-S1",
+        linear_meters=2.0,
+        price_cents=800,
+        geom=wkt,
+        status="locked",
+        locked_until=datetime.now(timezone.utc) + timedelta(minutes=10),
+        locked_by_token=token,
+    )
+    # Expired spot
+    s2 = Spot(
+        event_id=event_id,
+        label="EXPIRED-S2",
+        linear_meters=3.0,
+        price_cents=1200,
+        geom=wkt,
+        status="locked",
+        locked_until=datetime.now(timezone.utc) - timedelta(minutes=2),
+        locked_by_token=token,
+    )
+    db_session.add_all([s1, s2])
+    db_session.commit()
+
+    # Query cart
+    res = client.get(f"/api/v1/public/events/{slug}/cart?session_token={token}")
+    assert res.status_code == 200
+    cart = res.json()
+
+    assert cart["total_count"] == 1
+    assert cart["total_linear_meters"] == 2.0
+    assert cart["total_price"] == 8.0
+    assert cart["spots"][0]["label"] == "ACTIVE-S1"
+
+    # Verify expired spot was cleaned up in DB
+    db_s2 = db_session.query(Spot).filter(Spot.id == s2.id).first()
+    assert db_s2.status == "available"
+    assert db_s2.locked_until is None
+    assert db_s2.locked_by_token is None
+
+
+def test_get_cart_empty_or_no_token(client: TestClient):
+    event = create_sample_event(client, title="Empty Cart Event")
+    slug = event["slug"]
+
+    res = client.get(f"/api/v1/public/events/{slug}/cart")
+    assert res.status_code == 200
+    cart = res.json()
+    assert cart["total_count"] == 0
+    assert cart["spots"] == []
+    assert cart["expires_at"] is None
+
+
+def test_session_isolation_in_cart(client: TestClient):
+    event = create_sample_event(client, title="Cart Isolation Event")
+    event_id = event["id"]
+    slug = event["slug"]
+
+    r1 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "ISO-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    r2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "ISO-02",
+            "linear_meters": 4.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    id1 = r1.json()["id"]
+    id2 = r2.json()["id"]
+
+    # User 1 locks ISO-01
+    client.post(f"/api/v1/public/events/{slug}/spots/{id1}/lock", json={"session_token": "token-1"})
+    # User 2 locks ISO-02
+    client.post(f"/api/v1/public/events/{slug}/spots/{id2}/lock", json={"session_token": "token-2"})
+
+    # Check cart User 1
+    c1 = client.get(f"/api/v1/public/events/{slug}/cart?session_token=token-1").json()
+    assert c1["total_count"] == 1
+    assert c1["spots"][0]["id"] == id1
+
+    # Check cart User 2
+    c2 = client.get(f"/api/v1/public/events/{slug}/cart?session_token=token-2").json()
+    assert c2["total_count"] == 1
+    assert c2["spots"][0]["id"] == id2
+

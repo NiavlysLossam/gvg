@@ -35,6 +35,45 @@ class PublicSpotFeatureCollection(BaseModel):
     features: List[PublicSpotFeature] = []
 
 
+class LockSpotRequest(BaseModel):
+    session_token: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Anonymous client session UUID token",
+    )
+
+
+class UnlockSpotRequest(BaseModel):
+    session_token: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Anonymous client session UUID token",
+    )
+
+
+class CartSpotItem(BaseModel):
+    id: uuid.UUID
+    label: str
+    linear_meters: float
+    price_cents: int
+    price: float
+    locked_until: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CartResponse(BaseModel):
+    session_token: str
+    spots: List[CartSpotItem] = []
+    total_count: int = 0
+    total_linear_meters: float = 0.0
+    total_price_cents: int = 0
+    total_price: float = 0.0
+    expires_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class PublicEventResponse(BaseModel):
     id: uuid.UUID
     title: str
