@@ -12,6 +12,11 @@ class Settings(BaseSettings):
     # Database
     DATABASE_URL: str = "postgresql+psycopg://gvg:gvg_secret@localhost:5432/gvg"
     
+    # Stripe
+    STRIPE_SECRET_KEY: str = ""
+    STRIPE_PUBLISHABLE_KEY: str = ""
+    STRIPE_WEBHOOK_SECRET: str = ""
+
     # Uploads
     UPLOAD_DIR: str = "uploads"
 
