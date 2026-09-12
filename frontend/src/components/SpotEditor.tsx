@@ -66,6 +66,97 @@ function getNextProvisionalLabel(spots: SpotFeature[]): string {
   return `Stand ${maxNum + 1}`;
 }
 
+// Extract flat list of LatLng coordinates from polygon getLatLngs()
+function getFlatLatLngs(latlngs: any): L.LatLng[] {
+  if (!latlngs) return [];
+  if (!Array.isArray(latlngs)) {
+    if ('lat' in latlngs && 'lng' in latlngs) return [latlngs as L.LatLng];
+    return [];
+  }
+  if (latlngs.length === 0) return [];
+  if (latlngs[0] instanceof L.LatLng || ('lat' in latlngs[0] && 'lng' in latlngs[0])) {
+    return latlngs as L.LatLng[];
+  }
+  return getFlatLatLngs(latlngs[0]);
+}
+
+// Recursively shift lat/lng coordinates by delta
+function shiftLatLngs(latlngs: any, dLat: number, dLng: number): any {
+  if (!latlngs) return latlngs;
+  if (Array.isArray(latlngs)) {
+    return latlngs.map((item) => shiftLatLngs(item, dLat, dLng));
+  }
+  if (latlngs instanceof L.LatLng || (latlngs && 'lat' in latlngs && 'lng' in latlngs)) {
+    return L.latLng(latlngs.lat + dLat, latlngs.lng + dLng);
+  }
+  return latlngs;
+}
+
+// Calculate snap delta for polygon dragging against target polygons
+function calculatePolygonSnapDelta(
+  map: L.Map,
+  draggedPoly: L.Polygon,
+  otherPolys: L.Polygon[],
+  maxSnapPixelDistance: number
+): { dLat: number; dLng: number } | null {
+  const draggedPts = getFlatLatLngs(draggedPoly.getLatLngs());
+  if (draggedPts.length === 0) return null;
+
+  let bestDist = maxSnapPixelDistance;
+  let bestDelta: { dLat: number; dLng: number } | null = null;
+
+  for (const otherPoly of otherPolys) {
+    const otherPts = getFlatLatLngs(otherPoly.getLatLngs());
+    if (otherPts.length === 0) continue;
+
+    for (const v of draggedPts) {
+      const pV = map.latLngToContainerPoint(v);
+
+      // 1. Vertex to Vertex snapping
+      for (const w of otherPts) {
+        const pW = map.latLngToContainerPoint(w);
+        const dist = Math.hypot(pV.x - pW.x, pV.y - pW.y);
+        if (dist <= bestDist) {
+          bestDist = dist;
+          bestDelta = {
+            dLat: w.lat - v.lat,
+            dLng: w.lng - v.lng,
+          };
+        }
+      }
+
+      // 2. Vertex to Edge segment snapping
+      for (let i = 0; i < otherPts.length; i++) {
+        const a = otherPts[i];
+        const b = otherPts[(i + 1) % otherPts.length];
+        const pA = map.latLngToContainerPoint(a);
+        const pB = map.latLngToContainerPoint(b);
+
+        const abx = pB.x - pA.x;
+        const aby = pB.y - pA.y;
+        const abLenSq = abx * abx + aby * aby;
+        if (abLenSq === 0) continue;
+
+        const t = Math.max(0, Math.min(1, ((pV.x - pA.x) * abx + (pV.y - pA.y) * aby) / abLenSq));
+        const projX = pA.x + t * abx;
+        const projY = pA.y + t * aby;
+        const dist = Math.hypot(pV.x - projX, pV.y - projY);
+
+        if (dist <= bestDist) {
+          bestDist = dist;
+          const projLatLng = map.containerPointToLatLng(L.point(projX, projY));
+          bestDelta = {
+            dLat: projLatLng.lat - v.lat,
+            dLng: projLatLng.lng - v.lng,
+          };
+        }
+      }
+    }
+  }
+
+  return bestDelta;
+}
+
 export const SpotEditor: React.FC<SpotEditorProps> = ({
   event,
   onBack,
@@ -93,9 +184,13 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
 
   // Multi-selection state
   const [selectedSpotIds, setSelectedSpotIds] = useState<string[]>([]);
+  const selectedSpotIdsRef = useRef<string[]>([]);
+  selectedSpotIdsRef.current = selectedSpotIds;
   const [isMultiSelectMode, setIsMultiSelectMode] = useState<boolean>(false);
   const isMultiSelectModeRef = useRef<boolean>(false);
   isMultiSelectModeRef.current = isMultiSelectMode;
+  const multiDragInitialMapRef = useRef<Map<string, any>>(new Map());
+  const dragStartRef = useRef<{ lat: number; lng: number } | null>(null);
 
   // Duplication modal state
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState<boolean>(false);
@@ -343,6 +438,7 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
       const map = L.map(mapContainerRef.current, {
         center: [lat, lng],
         zoom: zoom,
+        maxZoom: 22,
         zoomControl: true,
       });
 
@@ -357,7 +453,8 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
       const initialAttr = tileLayerType === 'satellite' ? satAttr : osmAttr;
 
       const tileLayer = L.tileLayer(initialUrl, {
-        maxZoom: 19,
+        maxZoom: 22,
+        maxNativeZoom: 19,
         attribution: initialAttr,
       }).addTo(map);
       tileLayerRef.current = tileLayer;
@@ -395,7 +492,7 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         const map = L.map(mapContainerRef.current, {
           crs: L.CRS.Simple,
           minZoom: -2,
-          maxZoom: 3,
+          maxZoom: 6,
           zoomSnap: 0.25,
           zoomDelta: 0.5,
         });
@@ -422,10 +519,41 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
     }
 
     function setupGeoman(map: L.Map) {
-      // Set Geoman language to French if available
+      // Set Geoman language to French with custom Stand labels
       try {
         if (map.pm && typeof map.pm.setLang === 'function') {
-          map.pm.setLang('fr');
+          map.pm.setLang(
+            'fr',
+            {
+              tooltips: {
+                placeMarker: 'Cliquez pour placer un stand',
+                firstVertex: 'Cliquez pour placer le premier coin du stand',
+                continueLine: 'Cliquez pour continuer à tracer le stand',
+                finishLine: 'Cliquez sur le point pour terminer',
+                finishPoly: 'Cliquez sur le premier coin pour fermer le stand',
+                finishRect: 'Cliquez pour terminer le tracé du stand',
+              },
+              actions: {
+                finish: 'Terminer',
+                cancel: 'Annuler',
+                removeLastVertex: 'Retirer le dernier point',
+              },
+              buttonTitles: {
+                drawMarkerButton: 'Placer un repère',
+                drawPolyButton: 'Dessiner un stand polygonal',
+                drawLineButton: 'Tracer une ligne',
+                drawRectButton: 'Dessiner un stand (rectangle)',
+                editButton: 'Modifier la forme des stands',
+                dragButton: 'Déplacer les stands',
+                cutButton: 'Découper les stands',
+                deleteButton: 'Supprimer des stands',
+                rotateButton: 'Faire pivoter les stands',
+                snappingButton: 'Aimantation magnétique aux stands',
+                pinningButton: 'Lier les sommets partagés',
+              },
+            },
+            'fr'
+          );
         }
       } catch {
         // ignore
@@ -638,15 +766,136 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
           }
         });
 
-        // Save position before modification starts so we can revert on failure
+        // Save position before modification starts
         poly.on('pm:dragstart', () => {
           prevLatLngs = poly.getLatLngs();
+          const currentSelected = selectedSpotIdsRef.current;
+          if (currentSelected.includes(spot.id) && currentSelected.length > 1) {
+            const pts0 = getFlatLatLngs(poly.getLatLngs());
+            dragStartRef.current = pts0.length > 0 ? { lat: pts0[0].lat, lng: pts0[0].lng } : null;
+            multiDragInitialMapRef.current.clear();
+            currentSelected.forEach((id) => {
+              const l = spotLayersMapRef.current.get(id) as L.Polygon | undefined;
+              if (l) {
+                multiDragInitialMapRef.current.set(id, l.getLatLngs());
+              }
+            });
+          } else {
+            multiDragInitialMapRef.current.clear();
+            dragStartRef.current = null;
+          }
         });
+
+        // Translate other selected stands during drag
+        poly.on('pm:drag', () => {
+          if (multiDragInitialMapRef.current.size > 1 && dragStartRef.current) {
+            const ptsCurr = getFlatLatLngs(poly.getLatLngs());
+            if (ptsCurr.length > 0) {
+              const dLat = ptsCurr[0].lat - dragStartRef.current.lat;
+              const dLng = ptsCurr[0].lng - dragStartRef.current.lng;
+              selectedSpotIdsRef.current.forEach((id) => {
+                if (id !== spot.id) {
+                  const otherPoly = spotLayersMapRef.current.get(id) as L.Polygon | undefined;
+                  const originalLatLngs = multiDragInitialMapRef.current.get(id);
+                  if (otherPoly && originalLatLngs) {
+                    otherPoly.setLatLngs(shiftLatLngs(originalLatLngs, dLat, dLng));
+                  }
+                }
+              });
+            }
+          }
+        });
+
+        // Handle dragend: apply snapping and persist
+        const handleDragEnd = async () => {
+          const currentMap = mapInstanceRef.current;
+          const isMulti = multiDragInitialMapRef.current.size > 1;
+          const currentSelected = selectedSpotIdsRef.current;
+
+          // 1. Calculate magnetic snap if enabled
+          if (snapEnabled && currentMap) {
+            const snapTargets = spots
+              .filter((s) => (isMulti ? !currentSelected.includes(s.id) : s.id !== spot.id))
+              .map((s) => spotLayersMapRef.current.get(s.id) as L.Polygon | undefined)
+              .filter((l): l is L.Polygon => !!l);
+
+            const snapDelta = calculatePolygonSnapDelta(
+              currentMap,
+              poly,
+              snapTargets,
+              snapDistance
+            );
+
+            if (snapDelta) {
+              poly.setLatLngs(shiftLatLngs(poly.getLatLngs(), snapDelta.dLat, snapDelta.dLng));
+              if (isMulti) {
+                currentSelected.forEach((id) => {
+                  if (id !== spot.id) {
+                    const otherPoly = spotLayersMapRef.current.get(id) as L.Polygon | undefined;
+                    if (otherPoly) {
+                      otherPoly.setLatLngs(
+                        shiftLatLngs(otherPoly.getLatLngs(), snapDelta.dLat, snapDelta.dLng)
+                      );
+                    }
+                  }
+                });
+              }
+            }
+          }
+
+          // 2. Persist updates
+          if (isMulti) {
+            try {
+              const updatedList: SpotFeature[] = [];
+              for (const sId of currentSelected) {
+                const l = spotLayersMapRef.current.get(sId) as L.Polygon | undefined;
+                if (!l) continue;
+                const newGeom = (l.toGeoJSON().geometry as unknown) as GeoJSONPolygon;
+                const updated = await updateSpot(event.id, sId, { geometry: newGeom });
+                updatedList.push(updated);
+              }
+              const updatedMap = new Map(updatedList.map((u) => [u.id, u]));
+              setSpots((prev) => prev.map((s) => updatedMap.get(s.id) || s));
+              showToast(`${updatedList.length} stands déplacés et alignés avec succès !`);
+            } catch (err: unknown) {
+              multiDragInitialMapRef.current.forEach((origLatLngs, sId) => {
+                const l = spotLayersMapRef.current.get(sId) as L.Polygon | undefined;
+                if (l && origLatLngs) {
+                  l.setLatLngs(origLatLngs);
+                }
+              });
+              showToast(
+                err instanceof Error ? err.message : 'Erreur lors du déplacement groupé',
+                'error'
+              );
+            } finally {
+              multiDragInitialMapRef.current.clear();
+              dragStartRef.current = null;
+            }
+          } else {
+            // Single stand update
+            const updatedGeoJSON = poly.toGeoJSON();
+            const newGeom = updatedGeoJSON.geometry as GeoJSONPolygon;
+            try {
+              const updated = await updateSpot(event.id, spot.id, { geometry: newGeom });
+              setSpots((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
+              prevLatLngs = poly.getLatLngs();
+              showToast(`Stand « ${spot.properties.label} » déplacé.`);
+            } catch (err: unknown) {
+              if (prevLatLngs) poly.setLatLngs(prevLatLngs);
+              showToast(
+                err instanceof Error ? err.message : 'Erreur lors du déplacement',
+                'error'
+              );
+            }
+          }
+        };
+
         poly.on('pm:rotatestart', () => {
           prevLatLngs = poly.getLatLngs();
         });
 
-        // Listen for rotate, drag, and edit completions to persist updated geometry
+        // Listen for rotate and edit completions to persist updated geometry
         const persistGeometryUpdate = async () => {
           const updatedGeoJSON = poly.toGeoJSON();
           const newGeom = updatedGeoJSON.geometry as GeoJSONPolygon;
@@ -672,8 +921,8 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
           }
         };
 
+        poly.on('pm:dragend', handleDragEnd);
         poly.on('pm:rotateend', persistGeometryUpdate);
-        poly.on('pm:dragend', persistGeometryUpdate);
         poly.on('pm:edit', persistGeometryUpdate);
 
         group.addLayer(poly);
@@ -702,7 +951,8 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
     const attr = type === 'satellite' ? satAttr : osmAttr;
 
     tileLayerRef.current = L.tileLayer(url, {
-      maxZoom: 19,
+      maxZoom: 22,
+      maxNativeZoom: 19,
       attribution: attr,
     }).addTo(mapInstanceRef.current);
   };
