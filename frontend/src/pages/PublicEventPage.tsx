@@ -11,6 +11,7 @@ import { SpotDetailDrawer } from '../components/public/SpotDetailDrawer';
 interface PublicEventPageProps {
   slug: string;
   onNavigateHome?: () => void;
+  onNavigateToReservation?: () => void;
 }
 
 interface ToastState {
@@ -32,7 +33,11 @@ function extractErrorDetail(err: any, defaultMsg: string): string {
   return defaultMsg;
 }
 
-export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNavigateHome }) => {
+export const PublicEventPage: React.FC<PublicEventPageProps> = ({
+  slug,
+  onNavigateHome,
+  onNavigateToReservation,
+}) => {
   const [event, setEvent] = useState<PublicEventResponse | null>(null);
   const [spots, setSpots] = useState<PublicSpotFeature[]>([]);
   const [cart, setCart] = useState<CartResponse | null>(null);
@@ -260,11 +265,12 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({ slug, onNaviga
 
   // Proceed to checkout callback
   const handleProceedToCheckout = () => {
-    const reservationUrl = `/e/${encodeURIComponent(slug)}/reservation`;
-    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/e/')) {
-      window.location.href = reservationUrl;
+    if (onNavigateToReservation) {
+      onNavigateToReservation();
     } else {
-      showToast('Redirection vers le formulaire de réservation...', 'info');
+      const reservationUrl = `/e/${encodeURIComponent(slug)}/reservation`;
+      window.history.pushState({}, '', reservationUrl);
+      window.dispatchEvent(new PopStateEvent('popstate'));
     }
   };
 

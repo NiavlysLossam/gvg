@@ -375,4 +375,59 @@ export async function fetchCart(
   return response.json();
 }
 
+export async function createGuestOrder(
+  slug: string,
+  payload: import('../types/order').GuestOrderCreate
+): Promise<import('../types/order').OrderOut> {
+  const response = await fetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}/orders`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Token': payload.session_token,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la réservation';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function fetchPublicOrder(
+  slug: string,
+  orderId: string,
+  accessToken: string
+): Promise<import('../types/order').OrderOut> {
+  const response = await fetch(
+    `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}?token=${encodeURIComponent(accessToken)}`,
+    {
+      headers: {
+        'X-Access-Token': accessToken,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Commande introuvable';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
 

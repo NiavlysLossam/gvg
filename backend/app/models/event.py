@@ -59,6 +59,7 @@ class Event(Base):
 
     # Relationships
     spots = relationship("Spot", back_populates="event", cascade="all, delete-orphan")
+    orders = relationship("Order", back_populates="event", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Event id={self.id} title={self.title!r} slug={self.slug!r} status={self.status!r}>"

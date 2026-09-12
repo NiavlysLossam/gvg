@@ -28,6 +28,8 @@ def test_alembic_migrations_upgrade_and_downgrade():
         tables = inspector.get_table_names()
         assert "events" in tables, f"Expected 'events' table in {tables}"
         assert "spots" in tables, f"Expected 'spots' table in {tables}"
+        assert "orders" in tables, f"Expected 'orders' table in {tables}"
+        assert "booking_items" in tables, f"Expected 'booking_items' table in {tables}"
 
         columns = [c["name"] for c in inspector.get_columns("events")]
         assert "id" in columns
@@ -51,11 +53,36 @@ def test_alembic_migrations_upgrade_and_downgrade():
         assert "locked_until" in spot_columns
         assert "locked_by_token" in spot_columns
 
+        order_columns = [c["name"] for c in inspector.get_columns("orders")]
+        assert "id" in order_columns
+        assert "event_id" in order_columns
+        assert "order_number" in order_columns
+        assert "first_name" in order_columns
+        assert "last_name" in order_columns
+        assert "email" in order_columns
+        assert "phone" in order_columns
+        assert "street_address" in order_columns
+        assert "postal_code" in order_columns
+        assert "city" in order_columns
+        assert "honor_declaration_accepted" in order_columns
+        assert "honor_declaration_accepted_at" in order_columns
+        assert "total_price_cents" in order_columns
+        assert "status" in order_columns
+        assert "access_token" in order_columns
+
+        booking_columns = [c["name"] for c in inspector.get_columns("booking_items")]
+        assert "id" in booking_columns
+        assert "order_id" in booking_columns
+        assert "spot_id" in booking_columns
+        assert "price_cents" in booking_columns
+
         # 2. Execute downgrade to base
         command.downgrade(alembic_cfg, "base")
         inspector = inspect(engine)
         assert "events" not in inspector.get_table_names()
         assert "spots" not in inspector.get_table_names()
+        assert "orders" not in inspector.get_table_names()
+        assert "booking_items" not in inspector.get_table_names()
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)

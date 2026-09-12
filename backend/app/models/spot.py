@@ -68,6 +68,7 @@ class Spot(Base):
 
     # Relationships
     event = relationship("Event", back_populates="spots")
+    booking_items = relationship("BookingItem", back_populates="spot", passive_deletes=True)
 
     def __repr__(self) -> str:
         return f"<Spot id={self.id} event_id={self.event_id} label={self.label!r} status={self.status!r}>"

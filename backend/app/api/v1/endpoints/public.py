@@ -1,12 +1,15 @@
 import uuid
+import secrets
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, case, and_, or_, update, text
 
 from app.core.database import get_db
 from app.models.event import Event
 from app.models.spot import Spot
+from app.models.order import Order, BookingItem, generate_order_number, generate_access_token
 from app.schemas.public import (
     PublicEventResponse,
     PublicSpotFeatureCollection,
@@ -16,6 +19,7 @@ from app.schemas.public import (
     CartSpotItem,
     CartResponse,
 )
+from app.schemas.order import GuestOrderCreate, OrderOut
 
 router = APIRouter()
 
@@ -331,4 +335,220 @@ def unlock_public_spot(
             )
 
     return get_cart_for_session(db, event.id, token)
+
+
+@router.post(
+    "/events/{slug}/orders",
+    response_model=OrderOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a guest order from currently held cart spots",
+)
+def create_guest_order(
+    slug: str,
+    payload: GuestOrderCreate,
+    x_session_token: Optional[str] = Header(None, alias="X-Session-Token"),
+    db: Session = Depends(get_db),
+) -> OrderOut:
+    """
+    Public unauthenticated endpoint to create a guest order bound to spots held in visitor cart.
+    Requires valid contact fields and accepted sworn declaration (art. L310-2 du Code de commerce).
+    Atomically creates an Order in 'pending' status with unique order_number and unguessable access_token,
+    along with BookingItem records for each held stall.
+    Returns HTTP 409 Conflict if the cart is empty or hold locks have expired.
+    """
+    session_token = (payload.session_token or x_session_token or "").strip()
+    if not session_token:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Le jeton de session (session_token) est obligatoire",
+        )
+
+    if not payload.honor_declaration_accepted:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="L'attestation sur l'honneur est obligatoire pour participer au vide-grenier.",
+        )
+
+    event = get_public_event_by_slug(db, slug)
+
+    # 1. Fetch all spots locked by this session token
+    held_spots = (
+        db.query(Spot)
+        .filter(
+            Spot.event_id == event.id,
+            Spot.status == "locked",
+            Spot.locked_by_token == session_token,
+        )
+        .order_by(Spot.created_at.asc())
+        .all()
+    )
+
+    if not held_spots:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Votre réservation temporaire a expiré, veuillez resélectionner vos stands.",
+        )
+
+    now_utc = datetime.now(timezone.utc)
+    expired_spots = []
+    active_spots = []
+    for s in held_spots:
+        locked_until = s.locked_until
+        if locked_until is not None and locked_until.tzinfo is None:
+            locked_until = locked_until.replace(tzinfo=timezone.utc)
+        if locked_until is None or locked_until <= now_utc:
+            expired_spots.append(s)
+        else:
+            active_spots.append(s)
+
+    # If ANY spot locked by this session_token has expired, prune it and reject to avoid partial orders
+    if expired_spots:
+        for s in expired_spots:
+            s.status = "available"
+            s.locked_until = None
+            s.locked_by_token = None
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Votre réservation temporaire a expiré, veuillez resélectionner vos stands.",
+        )
+
+    if not active_spots:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Votre réservation temporaire a expiré, veuillez resélectionner vos stands.",
+        )
+
+    active_spot_ids = [s.id for s in active_spots]
+
+    # Check for an existing pending order for these spots to avoid duplicate pending orders on double submission
+    existing_pending_order = (
+        db.query(Order)
+        .join(BookingItem, BookingItem.order_id == Order.id)
+        .filter(
+            Order.event_id == event.id,
+            Order.status == "pending",
+            BookingItem.spot_id.in_(active_spot_ids),
+        )
+        .options(joinedload(Order.items).joinedload(BookingItem.spot))
+        .first()
+    )
+    if existing_pending_order:
+        return existing_pending_order
+
+    # 2. Compute total amount
+    total_cents = sum(spot.price_cents for spot in active_spots)
+
+    # 3. Create Order
+    order_number = generate_order_number()
+    while db.query(Order).filter(Order.order_number == order_number).first() is not None:
+        order_number = generate_order_number()
+
+    access_token = generate_access_token()
+
+    order = Order(
+        event_id=event.id,
+        order_number=order_number,
+        first_name=payload.first_name,
+        last_name=payload.last_name,
+        email=str(payload.email),
+        phone=payload.phone,
+        street_address=payload.street_address,
+        postal_code=payload.postal_code,
+        city=payload.city,
+        honor_declaration_accepted=payload.honor_declaration_accepted,
+        total_price_cents=total_cents,
+        status="pending",
+        payment_method="stripe",
+        access_token=access_token,
+    )
+    db.add(order)
+    db.flush()
+
+    # 4. Create BookingItem for each held spot
+    for spot in active_spots:
+        item = BookingItem(
+            order_id=order.id,
+            spot_id=spot.id,
+            price_cents=spot.price_cents,
+        )
+        db.add(item)
+
+    # 5. Extend locked_until on held spots to now() + 15 min upon order creation
+    bind = db.get_bind()
+    is_pg = (bind.dialect.name == "postgresql") if bind else False
+    locked_until_expr = (func.now() + text("INTERVAL '15 minutes'")) if is_pg else func.datetime("now", "+15 minutes")
+
+    stmt = (
+        update(Spot)
+        .where(
+            Spot.id.in_(active_spot_ids),
+            Spot.event_id == event.id,
+        )
+        .values(
+            locked_until=locked_until_expr,
+            updated_at=func.now(),
+        )
+    )
+    db.execute(stmt)
+
+    db.commit()
+
+    # Query with joinedload for response
+    persisted_order = (
+        db.query(Order)
+        .options(joinedload(Order.items).joinedload(BookingItem.spot))
+        .filter(Order.id == order.id)
+        .first()
+    )
+
+    return persisted_order
+
+
+@router.get(
+    "/events/{slug}/orders/{order_id}",
+    response_model=OrderOut,
+    summary="Get order details by order ID and access token",
+)
+def get_public_order(
+    slug: str,
+    order_id: uuid.UUID,
+    token: Optional[str] = Query(None, description="Order access token"),
+    x_access_token: Optional[str] = Header(None, alias="X-Access-Token"),
+    db: Session = Depends(get_db),
+) -> OrderOut:
+    """
+    Public unauthenticated endpoint to view order summary and status using the passwordless magic access_token.
+    """
+    event = get_public_event_by_slug(db, slug)
+    access_token = (token or x_access_token or "").strip()
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Le jeton d'accès (token) est obligatoire pour consulter la commande",
+        )
+
+    order = (
+        db.query(Order)
+        .options(joinedload(Order.items).joinedload(BookingItem.spot))
+        .filter(
+            Order.id == order_id,
+            Order.event_id == event.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable",
+        )
+
+    if not secrets.compare_digest(order.access_token, access_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé : jeton de commande invalide",
+        )
+
+    return order
 

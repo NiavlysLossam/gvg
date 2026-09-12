@@ -15,25 +15,62 @@ import { EventCard } from './components/EventCard';
 import { MapCalibration } from './components/MapCalibration';
 import { SpotEditor } from './components/SpotEditor';
 import { PublicEventPage } from './pages/PublicEventPage';
+import { ReservationPage } from './pages/ReservationPage';
 
-function getSlugFromUrl(): string | null {
+interface PublicRouteState {
+  slug: string;
+  view: 'map' | 'reservation';
+}
+
+function parsePublicRoute(): PublicRouteState | null {
   if (typeof window === 'undefined') return null;
   try {
-    // 1. Check pathname: /e/:slug
-    const match = window.location.pathname.match(/^\/e\/([^/]+)/);
-    if (match && match[1]) {
-      return decodeURIComponent(match[1]);
+    const pathname = window.location.pathname;
+
+    // 1. Pathname: /e/:slug/reservation
+    const resMatch = pathname.match(/^\/e\/([^/]+)\/reservation\/?$/);
+    if (resMatch && resMatch[1]) {
+      return {
+        slug: decodeURIComponent(resMatch[1]),
+        view: 'reservation',
+      };
     }
-    // 2. Check query param: ?slug=... or ?event=...
+
+    // 2. Pathname: /e/:slug
+    const publicMatch = pathname.match(/^\/e\/([^/]+)\/?$/);
+    if (publicMatch && publicMatch[1]) {
+      return {
+        slug: decodeURIComponent(publicMatch[1]),
+        view: 'map',
+      };
+    }
+
+    // 3. Hash routing fallback: #/e/:slug/reservation or #/e/:slug
+    const hash = window.location.hash;
+    const hashResMatch = hash.match(/^#\/e\/([^/]+)\/reservation\/?$/);
+    if (hashResMatch && hashResMatch[1]) {
+      return {
+        slug: decodeURIComponent(hashResMatch[1]),
+        view: 'reservation',
+      };
+    }
+    const hashMatch = hash.match(/^#\/e\/([^/]+)\/?$/);
+    if (hashMatch && hashMatch[1]) {
+      return {
+        slug: decodeURIComponent(hashMatch[1]),
+        view: 'map',
+      };
+    }
+
+    // 4. Query params fallback: ?slug=... &view=reservation
     const params = new URLSearchParams(window.location.search);
     const slugParam = params.get('slug') || params.get('event');
     if (slugParam) {
-      return slugParam;
-    }
-    // 3. Check hash fallback: #/e/:slug
-    const hashMatch = window.location.hash.match(/^#\/e\/([^/]+)/);
-    if (hashMatch && hashMatch[1]) {
-      return decodeURIComponent(hashMatch[1]);
+      const isRes = params.get('view') === 'reservation' || params.has('reservation');
+      return {
+        slug: slugParam,
+        view: isRes ? 'reservation' : 'map',
+      };
     }
   } catch {
     return null;
@@ -42,7 +79,7 @@ function getSlugFromUrl(): string | null {
 }
 
 export const App: React.FC = () => {
-  const [publicSlug, setPublicSlug] = useState<string | null>(getSlugFromUrl());
+  const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
   const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor'>('list');
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
@@ -52,20 +89,25 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = () => {
-      setPublicSlug(getSlugFromUrl());
+      setPublicRoute(parsePublicRoute());
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
   const navigateToPublic = (slug: string) => {
-    window.history.pushState({}, '', `/e/${slug}`);
-    setPublicSlug(slug);
+    window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}`);
+    setPublicRoute({ slug, view: 'map' });
+  };
+
+  const navigateToReservation = (slug: string) => {
+    window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}/reservation`);
+    setPublicRoute({ slug, view: 'reservation' });
   };
 
   const navigateHome = () => {
     window.history.pushState({}, '', '/');
-    setPublicSlug(null);
+    setPublicRoute(null);
   };
 
   const loadEvents = async () => {
@@ -82,10 +124,10 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!publicSlug) {
+    if (!publicRoute) {
       loadEvents();
     }
-  }, [publicSlug]);
+  }, [publicRoute]);
 
   const handleCreated = (newEvent: EventModel) => {
     setEvents([newEvent, ...events]);
@@ -114,8 +156,23 @@ export const App: React.FC = () => {
     setTimeout(() => setNotification(null), 6000);
   };
 
-  if (publicSlug) {
-    return <PublicEventPage slug={publicSlug} onNavigateHome={navigateHome} />;
+  if (publicRoute) {
+    if (publicRoute.view === 'reservation') {
+      return (
+        <ReservationPage
+          slug={publicRoute.slug}
+          onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
+          onNavigateHome={navigateHome}
+        />
+      );
+    }
+    return (
+      <PublicEventPage
+        slug={publicRoute.slug}
+        onNavigateHome={navigateHome}
+        onNavigateToReservation={() => navigateToReservation(publicRoute.slug)}
+      />
+    );
   }
 
   return (

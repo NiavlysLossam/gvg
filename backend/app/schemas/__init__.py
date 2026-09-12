@@ -5,6 +5,11 @@ from app.schemas.event import (
     EventResponse,
     EventListResponse,
 )
+from app.schemas.order import (
+    GuestOrderCreate,
+    BookingItemOut,
+    OrderOut,
+)
 
 __all__ = [
     "EventBase",
@@ -12,5 +17,8 @@ __all__ = [
     "EventUpdate",
     "EventResponse",
     "EventListResponse",
+    "GuestOrderCreate",
+    "BookingItemOut",
+    "OrderOut",
 ]
 
