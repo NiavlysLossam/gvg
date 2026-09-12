@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, func, Uuid
+from sqlalchemy.orm import relationship
 from app.core.database import Base
 
 
@@ -55,6 +56,9 @@ class Event(Base):
         onupdate=func.now(),
         nullable=False,
     )
+
+    # Relationships
+    spots = relationship("Spot", back_populates="event", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Event id={self.id} title={self.title!r} slug={self.slug!r} status={self.status!r}>"

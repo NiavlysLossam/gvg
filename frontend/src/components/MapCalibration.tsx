@@ -13,7 +13,8 @@ import {
   FileImage,
   RefreshCw,
   Compass,
-  Maximize2
+  Maximize2,
+  PenTool,
 } from 'lucide-react';
 import { EventModel, MapType } from '../types/event';
 import { updateEvent, uploadBackgroundImage, getImageUrl, ApiError } from '../lib/api';
@@ -47,12 +48,14 @@ interface MapCalibrationProps {
   event: EventModel;
   onBack: () => void;
   onSaved: (updatedEvent: EventModel) => void;
+  onProceedToEditor?: (event: EventModel) => void;
 }
 
 export const MapCalibration: React.FC<MapCalibrationProps> = ({
   event,
   onBack,
   onSaved,
+  onProceedToEditor,
 }) => {
   const [currentEvent, setCurrentEvent] = useState<EventModel>(event);
   const [mode, setMode] = useState<MapType>(event.map_type || 'geographic');
@@ -507,6 +510,17 @@ export const MapCalibration: React.FC<MapCalibrationProps> = ({
               </>
             )}
           </button>
+          {onProceedToEditor && (
+            <button
+              type="button"
+              onClick={() => onProceedToEditor(currentEvent)}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-semibold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-lg hover:bg-emerald-100 transition shadow-xs"
+              title="Passer au tracé des stands"
+            >
+              <PenTool className="w-4 h-4 text-emerald-600" />
+              <span>Tracer les stands</span>
+            </button>
+          )}
         </div>
       </div>
 

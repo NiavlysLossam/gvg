@@ -53,6 +53,20 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
+        if connection.dialect.name == "sqlite":
+            try:
+                connection.connection.enable_load_extension(True)
+                for ext in ["mod_spatialite", "mod_spatialite.so", "/usr/lib/x86_64-linux-gnu/mod_spatialite.so", "libspatialite.so"]:
+                    try:
+                        connection.connection.load_extension(ext)
+                        connection.exec_driver_sql("SELECT InitSpatialMetaData(1)")
+                        connection.commit()
+                        break
+                    except Exception:
+                        pass
+            except Exception:
+                pass
+
         context.configure(
             connection=connection,
             target_metadata=target_metadata,

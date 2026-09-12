@@ -1,13 +1,18 @@
 import React from 'react';
-import { Calendar, Clock, MapPin, Map, ChevronRight, Layers } from 'lucide-react';
+import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool } from 'lucide-react';
 import { EventModel } from '../types/event';
 
 interface EventCardProps {
   event: EventModel;
   onConfigurePlan?: (event: EventModel) => void;
+  onOpenEditor?: (event: EventModel) => void;
 }
 
-export const EventCard: React.FC<EventCardProps> = ({ event, onConfigurePlan }) => {
+export const EventCard: React.FC<EventCardProps> = ({
+  event,
+  onConfigurePlan,
+  onOpenEditor,
+}) => {
   const startDate = new Date(event.start_date);
   const formattedDate = startDate.toLocaleDateString('fr-FR', {
     weekday: 'long',
@@ -80,19 +85,26 @@ export const EventCard: React.FC<EventCardProps> = ({ event, onConfigurePlan }) 
         </div>
       </div>
 
-      <div className="pt-6 mt-4 border-t border-gray-100 flex items-center justify-between">
-        <div className="text-xs text-gray-400">
-          Slug : <code className="bg-gray-100 px-1.5 py-0.5 rounded text-gray-600">{event.slug}</code>
-        </div>
-
+      <div className="pt-5 mt-4 border-t border-gray-100 flex items-center justify-between gap-2">
         <button
           type="button"
           onClick={() => onConfigurePlan?.(event)}
-          className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-sm font-semibold rounded-lg transition"
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg border border-gray-200 transition"
+          title="Calibrer le fond de plan"
         >
-          <Map className="w-4 h-4 text-emerald-600" />
-          <span>Configurer le plan</span>
-          <ChevronRight className="w-4 h-4 ml-0.5" />
+          <Map className="w-3.5 h-3.5 text-gray-500" />
+          <span>Fond de plan</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => onOpenEditor?.(event)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition"
+          title="Ouvrir l'éditeur de tracé vectoriel des stands"
+        >
+          <PenTool className="w-3.5 h-3.5" />
+          <span>Éditeur de stands</span>
+          <ChevronRight className="w-3 h-3" />
         </button>
       </div>
     </div>

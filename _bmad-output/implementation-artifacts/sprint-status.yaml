@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-06-2026 17:40
+last_updated: 09-12-2026 18:08
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -12,8 +12,8 @@ development_status:
   epic-1: in-progress
   1-1-initialisation-projet-creation-evenement: done
   1-2-calibrage-fond-de-plan-satellite-ou-salle: done
-  1-3-dessin-vectoriel-emplacements-leaflet-geoman: ready-for-dev
-  1-4-duplication-rapide-snap-to-grid-numerotation-auto: backlog
+  1-3-dessin-vectoriel-emplacements-leaflet-geoman: done
+  1-4-duplication-rapide-snap-to-grid-numerotation-auto: ready-for-dev
   epic-1-retrospective: optional
 
   epic-2: backlog

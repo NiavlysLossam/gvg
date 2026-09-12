@@ -1,4 +1,5 @@
 import { EventCreateInput, EventUpdateInput, EventListResponse, EventModel } from '../types/event';
+import { SpotCreateInput, SpotUpdateInput, SpotFeature, SpotFeatureCollection } from '../types/spot';
 
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
 
@@ -102,4 +103,93 @@ export function getImageUrl(path?: string | null): string {
   const baseUrl = import.meta.env.VITE_API_URL || '';
   return `${baseUrl}${path}`;
 }
+
+export async function fetchSpots(eventIdOrSlug: string): Promise<SpotFeatureCollection> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots`);
+  if (!response.ok) {
+    let detail = 'Erreur lors de la récupération des emplacements';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
+export async function createSpot(eventIdOrSlug: string, data: SpotCreateInput): Promise<SpotFeature> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la création du stand';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function updateSpot(
+  eventIdOrSlug: string,
+  spotId: string,
+  data: SpotUpdateInput
+): Promise<SpotFeature> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/${encodeURIComponent(spotId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la mise à jour du stand';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function deleteSpot(eventIdOrSlug: string, spotId: string): Promise<void> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/${encodeURIComponent(spotId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la suppression du stand';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+}
+
 

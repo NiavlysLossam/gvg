@@ -27,6 +27,7 @@ def test_alembic_migrations_upgrade_and_downgrade():
         inspector = inspect(engine)
         tables = inspector.get_table_names()
         assert "events" in tables, f"Expected 'events' table in {tables}"
+        assert "spots" in tables, f"Expected 'spots' table in {tables}"
 
         columns = [c["name"] for c in inspector.get_columns("events")]
         assert "id" in columns
@@ -39,10 +40,22 @@ def test_alembic_migrations_upgrade_and_downgrade():
         assert "center_longitude" in columns
         assert "default_zoom" in columns
 
+        spot_columns = [c["name"] for c in inspector.get_columns("spots")]
+        assert "id" in spot_columns
+        assert "event_id" in spot_columns
+        assert "label" in spot_columns
+        assert "linear_meters" in spot_columns
+        assert "price_cents" in spot_columns
+        assert "geom" in spot_columns
+        assert "status" in spot_columns
+        assert "locked_until" in spot_columns
+        assert "locked_by_token" in spot_columns
+
         # 2. Execute downgrade to base
         command.downgrade(alembic_cfg, "base")
         inspector = inspect(engine)
         assert "events" not in inspector.get_table_names()
+        assert "spots" not in inspector.get_table_names()
     finally:
         if os.path.exists(db_path):
             os.remove(db_path)

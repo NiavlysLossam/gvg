@@ -1,13 +1,22 @@
 import React, { useState, useEffect } from 'react';
-import { PlusCircle, ListFilter, Map, CheckCircle2, RefreshCw, AlertCircle } from 'lucide-react';
+import {
+  PlusCircle,
+  ListFilter,
+  Map,
+  CheckCircle2,
+  RefreshCw,
+  AlertCircle,
+  PenTool,
+} from 'lucide-react';
 import { EventModel } from './types/event';
 import { fetchEvents } from './lib/api';
 import { EventForm } from './components/EventForm';
 import { EventCard } from './components/EventCard';
 import { MapCalibration } from './components/MapCalibration';
+import { SpotEditor } from './components/SpotEditor';
 
 export const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor'>('list');
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -35,13 +44,20 @@ export const App: React.FC = () => {
     setEvents([newEvent, ...events]);
     setSelectedEvent(newEvent);
     setActiveTab('calibrate');
-    setNotification(`L'événement « ${newEvent.title} » a été créé avec succès ! Vous pouvez maintenant calibrer son plan.`);
+    setNotification(
+      `L'événement « ${newEvent.title} » a été créé avec succès ! Vous pouvez maintenant calibrer son plan.`
+    );
     setTimeout(() => setNotification(null), 6000);
   };
 
   const handleConfigurePlan = (event: EventModel) => {
     setSelectedEvent(event);
     setActiveTab('calibrate');
+  };
+
+  const handleOpenEditor = (event: EventModel) => {
+    setSelectedEvent(event);
+    setActiveTab('editor');
   };
 
   const handleSavedCalibration = (updatedEvent: EventModel) => {
@@ -82,7 +98,14 @@ export const App: React.FC = () => {
             {activeTab === 'calibrate' && selectedEvent && (
               <div className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
                 <Map className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="truncate max-w-[160px]">{selectedEvent.title}</span>
+                <span className="truncate max-w-[160px]">{selectedEvent.title} (Plan)</span>
+              </div>
+            )}
+
+            {activeTab === 'editor' && selectedEvent && (
+              <div className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                <PenTool className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="truncate max-w-[160px]">{selectedEvent.title} (Stands)</span>
               </div>
             )}
 
@@ -143,6 +166,15 @@ export const App: React.FC = () => {
               event={selectedEvent}
               onBack={() => setActiveTab('list')}
               onSaved={handleSavedCalibration}
+              onProceedToEditor={handleOpenEditor}
+            />
+          </div>
+        ) : activeTab === 'editor' && selectedEvent ? (
+          <div className="max-w-7xl mx-auto">
+            <SpotEditor
+              event={selectedEvent}
+              onBack={() => setActiveTab('list')}
+              onNavigateToCalibration={() => setActiveTab('calibrate')}
             />
           </div>
         ) : (
@@ -177,7 +209,8 @@ export const App: React.FC = () => {
                 </div>
                 <h3 className="text-lg font-bold text-gray-900">Aucun événement configuré</h3>
                 <p className="text-sm text-gray-500 mt-2">
-                  Créez votre premier vide-grenier pour commencer à configurer les horaires et tracer les emplacements sur le plan.
+                  Créez votre premier vide-grenier pour commencer à configurer les horaires et
+                  tracer les emplacements sur le plan.
                 </p>
                 <button
                   onClick={() => setActiveTab('create')}
@@ -194,6 +227,7 @@ export const App: React.FC = () => {
                     key={event.id}
                     event={event}
                     onConfigurePlan={handleConfigurePlan}
+                    onOpenEditor={handleOpenEditor}
                   />
                 ))}
               </div>
@@ -205,7 +239,8 @@ export const App: React.FC = () => {
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 py-6 mt-auto">
         <div className="max-w-7xl mx-auto px-4 text-center text-xs text-gray-400">
-          GVG &copy; 2026 &mdash; Plateforme libre et open-source de gestion de vide-greniers et brocantes.
+          GVG &copy; 2026 &mdash; Plateforme libre et open-source de gestion de vide-greniers et
+          brocantes.
         </div>
       </footer>
     </div>
@@ -213,4 +248,3 @@ export const App: React.FC = () => {
 };
 
 export default App;
-
