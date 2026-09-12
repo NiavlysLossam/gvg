@@ -49,3 +49,4 @@ Permettre aux exposantes et exposants (particuliers comme Monique) de consulter 
 - **Story 2.2** s'appuie sur la carte publique pour ajouter la sélection interactive, le verrouillage 15 min et le panier.
 - **Story 2.3** ajoute le formulaire de contact sans mot de passe déclenché depuis le panier.
 - **Story 2.4** finalise la commande via Stripe Elements et le webhook serveur.
+

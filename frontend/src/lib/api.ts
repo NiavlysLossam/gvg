@@ -256,4 +256,34 @@ export async function renumberSpotsBatch(
   return response.json();
 }
 
+export async function fetchPublicEvent(slug: string): Promise<import('../types/public').PublicEventResponse> {
+  const response = await fetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}`);
+  if (!response.ok) {
+    let detail = 'Événement introuvable';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
+export async function fetchPublicSpots(slug: string): Promise<import('../types/public').PublicSpotFeatureCollection> {
+  const response = await fetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}/spots`);
+  if (!response.ok) {
+    let detail = 'Erreur lors de la récupération des emplacements';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
 

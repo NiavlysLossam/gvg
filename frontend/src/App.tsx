@@ -14,14 +14,59 @@ import { EventForm } from './components/EventForm';
 import { EventCard } from './components/EventCard';
 import { MapCalibration } from './components/MapCalibration';
 import { SpotEditor } from './components/SpotEditor';
+import { PublicEventPage } from './pages/PublicEventPage';
+
+function getSlugFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    // 1. Check pathname: /e/:slug
+    const match = window.location.pathname.match(/^\/e\/([^/]+)/);
+    if (match && match[1]) {
+      return decodeURIComponent(match[1]);
+    }
+    // 2. Check query param: ?slug=... or ?event=...
+    const params = new URLSearchParams(window.location.search);
+    const slugParam = params.get('slug') || params.get('event');
+    if (slugParam) {
+      return slugParam;
+    }
+    // 3. Check hash fallback: #/e/:slug
+    const hashMatch = window.location.hash.match(/^#\/e\/([^/]+)/);
+    if (hashMatch && hashMatch[1]) {
+      return decodeURIComponent(hashMatch[1]);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 export const App: React.FC = () => {
+  const [publicSlug, setPublicSlug] = useState<string | null>(getSlugFromUrl());
   const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor'>('list');
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [notification, setNotification] = useState<string | null>(null);
   const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      setPublicSlug(getSlugFromUrl());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const navigateToPublic = (slug: string) => {
+    window.history.pushState({}, '', `/e/${slug}`);
+    setPublicSlug(slug);
+  };
+
+  const navigateHome = () => {
+    window.history.pushState({}, '', '/');
+    setPublicSlug(null);
+  };
 
   const loadEvents = async () => {
     setLoading(true);
@@ -37,8 +82,10 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    loadEvents();
-  }, []);
+    if (!publicSlug) {
+      loadEvents();
+    }
+  }, [publicSlug]);
 
   const handleCreated = (newEvent: EventModel) => {
     setEvents([newEvent, ...events]);
@@ -66,6 +113,10 @@ export const App: React.FC = () => {
     setNotification(`Le plan de l'événement « ${updatedEvent.title} » a été calibré avec succès !`);
     setTimeout(() => setNotification(null), 6000);
   };
+
+  if (publicSlug) {
+    return <PublicEventPage slug={publicSlug} onNavigateHome={navigateHome} />;
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -228,6 +279,7 @@ export const App: React.FC = () => {
                     event={event}
                     onConfigurePlan={handleConfigurePlan}
                     onOpenEditor={handleOpenEditor}
+                    onViewPublic={navigateToPublic}
                   />
                 ))}
               </div>

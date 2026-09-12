@@ -2,11 +2,11 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-12-2026 19:15
+last_updated: 09-12-2026 19:42
 project: gvg
 project_key: GVG
 tracking_system: file-system
-story_location: "_bmad-output/implementation-artifacts/stories"
+story_location: "_bmad-output/implementation-artifacts"
 
 development_status:
   epic-1: done
@@ -16,8 +16,8 @@ development_status:
   1-4-duplication-rapide-snap-to-grid-numerotation-auto: done
   epic-1-retrospective: done
 
-  epic-2: backlog
-  2-1-consultation-interactive-plan-public-mobile-first: backlog
+  epic-2: in-progress
+  2-1-consultation-interactive-plan-public-mobile-first: done
   2-2-selection-multi-places-verrouillage-temporaire-15min: backlog
   2-3-formulaire-invite-attestation-sur-honneur: backlog
   2-4-paiement-securise-stripe-confirmation-webhook: backlog

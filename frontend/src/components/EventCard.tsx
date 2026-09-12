@@ -6,12 +6,14 @@ interface EventCardProps {
   event: EventModel;
   onConfigurePlan?: (event: EventModel) => void;
   onOpenEditor?: (event: EventModel) => void;
+  onViewPublic?: (slug: string) => void;
 }
 
 export const EventCard: React.FC<EventCardProps> = ({
   event,
   onConfigurePlan,
   onOpenEditor,
+  onViewPublic,
 }) => {
   const startDate = new Date(event.start_date);
   const formattedDate = startDate.toLocaleDateString('fr-FR', {
@@ -85,16 +87,29 @@ export const EventCard: React.FC<EventCardProps> = ({
         </div>
       </div>
 
-      <div className="pt-5 mt-4 border-t border-gray-100 flex items-center justify-between gap-2">
-        <button
-          type="button"
-          onClick={() => onConfigurePlan?.(event)}
-          className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg border border-gray-200 transition"
-          title="Calibrer le fond de plan"
-        >
-          <Map className="w-3.5 h-3.5 text-gray-500" />
-          <span>Fond de plan</span>
-        </button>
+      <div className="pt-5 mt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onConfigurePlan?.(event)}
+            className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg border border-gray-200 transition"
+            title="Calibrer le fond de plan"
+          >
+            <Map className="w-3.5 h-3.5 text-gray-500" />
+            <span>Fond de plan</span>
+          </button>
+
+          {onViewPublic && (
+            <button
+              type="button"
+              onClick={() => onViewPublic(event.slug)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold rounded-lg border border-emerald-200 transition"
+              title="Voir la vue publique du plan"
+            >
+              <span>Vue publique</span>
+            </button>
+          )}
+        </div>
 
         <button
           type="button"
