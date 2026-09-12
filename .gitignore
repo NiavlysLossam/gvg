@@ -29,3 +29,8 @@ tsconfig.tsbuildinfo
 # Uploads
 uploads/
 **/uploads/
+
+# Databases
+*.db
+*.sqlite*
+
