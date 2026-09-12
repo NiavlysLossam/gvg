@@ -172,3 +172,12 @@ class OrderOut(BaseModel):
                 "updated_at": getattr(data, "updated_at", None),
             }
         return data
+
+
+class PaymentIntentResponse(BaseModel):
+    client_secret: str
+    publishable_key: str
+    payment_intent_id: str
+    amount_cents: int
+    currency: str = "eur"
+

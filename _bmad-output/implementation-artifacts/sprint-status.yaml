@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-13-2026 00:44
+last_updated: 09-13-2026 01:14
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -16,11 +16,12 @@ development_status:
   1-4-duplication-rapide-snap-to-grid-numerotation-auto: done
   epic-1-retrospective: done
 
-  epic-2: in-progress
+  epic-2: done
   2-1-consultation-interactive-plan-public-mobile-first: done
   2-2-selection-multi-places-verrouillage-temporaire-15min: done
   2-3-formulaire-invite-attestation-sur-honneur: done
-  2-4-paiement-securise-stripe-confirmation-webhook: backlog
+  2-4-paiement-securise-stripe-confirmation-webhook: done
+
   epic-2-retrospective: optional
 
   epic-3: backlog

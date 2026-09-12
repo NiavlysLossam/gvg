@@ -16,16 +16,28 @@ import { MapCalibration } from './components/MapCalibration';
 import { SpotEditor } from './components/SpotEditor';
 import { PublicEventPage } from './pages/PublicEventPage';
 import { ReservationPage } from './pages/ReservationPage';
+import { ConfirmationPage } from './pages/ConfirmationPage';
 
 interface PublicRouteState {
   slug: string;
-  view: 'map' | 'reservation';
+  view: 'map' | 'reservation' | 'confirmation';
+  orderId?: string;
 }
 
 function parsePublicRoute(): PublicRouteState | null {
   if (typeof window === 'undefined') return null;
   try {
     const pathname = window.location.pathname;
+
+    // 0. Pathname: /e/:slug/confirmation/:orderId
+    const confMatch = pathname.match(/^\/e\/([^/?#]+)\/confirmation\/([^/?#]+)(?:\?.*)?$/);
+    if (confMatch && confMatch[1] && confMatch[2]) {
+      return {
+        slug: decodeURIComponent(confMatch[1]),
+        view: 'confirmation',
+        orderId: decodeURIComponent(confMatch[2]),
+      };
+    }
 
     // 1. Pathname: /e/:slug/reservation
     const resMatch = pathname.match(/^\/e\/([^/]+)\/reservation\/?$/);
@@ -45,8 +57,16 @@ function parsePublicRoute(): PublicRouteState | null {
       };
     }
 
-    // 3. Hash routing fallback: #/e/:slug/reservation or #/e/:slug
+    // 3. Hash routing fallback
     const hash = window.location.hash;
+    const hashConfMatch = hash.match(/^#\/e\/([^/?#]+)\/confirmation\/([^/?#]+)(?:\?.*)?$/);
+    if (hashConfMatch && hashConfMatch[1] && hashConfMatch[2]) {
+      return {
+        slug: decodeURIComponent(hashConfMatch[1]),
+        view: 'confirmation',
+        orderId: decodeURIComponent(hashConfMatch[2]),
+      };
+    }
     const hashResMatch = hash.match(/^#\/e\/([^/]+)\/reservation\/?$/);
     if (hashResMatch && hashResMatch[1]) {
       return {
@@ -62,11 +82,20 @@ function parsePublicRoute(): PublicRouteState | null {
       };
     }
 
-    // 4. Query params fallback: ?slug=... &view=reservation
+    // 4. Query params fallback: ?slug=... &view=confirmation&orderId=...
     const params = new URLSearchParams(window.location.search);
     const slugParam = params.get('slug') || params.get('event');
     if (slugParam) {
-      const isRes = params.get('view') === 'reservation' || params.has('reservation');
+      const viewParam = params.get('view');
+      const orderIdParam = params.get('orderId') || params.get('order_id') || undefined;
+      if (viewParam === 'confirmation' || orderIdParam) {
+        return {
+          slug: slugParam,
+          view: 'confirmation',
+          orderId: orderIdParam,
+        };
+      }
+      const isRes = viewParam === 'reservation' || params.has('reservation');
       return {
         slug: slugParam,
         view: isRes ? 'reservation' : 'map',
@@ -77,6 +106,7 @@ function parsePublicRoute(): PublicRouteState | null {
   }
   return null;
 }
+
 
 export const App: React.FC = () => {
   const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
@@ -103,6 +133,15 @@ export const App: React.FC = () => {
   const navigateToReservation = (slug: string) => {
     window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}/reservation`);
     setPublicRoute({ slug, view: 'reservation' });
+  };
+
+  const navigateToConfirmation = (slug: string, orderId: string, accessToken: string) => {
+    window.history.pushState(
+      {},
+      '',
+      `/e/${encodeURIComponent(slug)}/confirmation/${encodeURIComponent(orderId)}?token=${encodeURIComponent(accessToken)}`
+    );
+    setPublicRoute({ slug, view: 'confirmation', orderId });
   };
 
   const navigateHome = () => {
@@ -157,12 +196,23 @@ export const App: React.FC = () => {
   };
 
   if (publicRoute) {
+    if (publicRoute.view === 'confirmation' && publicRoute.orderId) {
+      return (
+        <ConfirmationPage
+          slug={publicRoute.slug}
+          orderId={publicRoute.orderId}
+          onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
+          onNavigateHome={navigateHome}
+        />
+      );
+    }
     if (publicRoute.view === 'reservation') {
       return (
         <ReservationPage
           slug={publicRoute.slug}
           onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
           onNavigateHome={navigateHome}
+          onNavigateToConfirmation={navigateToConfirmation}
         />
       );
     }
@@ -174,6 +224,7 @@ export const App: React.FC = () => {
       />
     );
   }
+
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">

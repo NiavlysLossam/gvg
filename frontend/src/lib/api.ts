@@ -430,4 +430,35 @@ export async function fetchPublicOrder(
   return response.json();
 }
 
+export async function createPaymentIntent(
+  slug: string,
+  orderId: string,
+  accessToken: string
+): Promise<import('../types/order').PaymentIntentResponse> {
+  const response = await fetch(
+    `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}/payment-intent?token=${encodeURIComponent(accessToken)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Access-Token': accessToken,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de l’initialisation du paiement sécurisé';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+
 

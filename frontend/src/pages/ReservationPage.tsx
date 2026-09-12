@@ -10,19 +10,22 @@ import {
   AlertTriangle,
   RotateCcw,
   Sparkles,
-  CreditCard,
 } from 'lucide-react';
+
 import { PublicEventResponse, CartResponse } from '../types/public';
 import { OrderOut } from '../types/order';
 import { fetchPublicEvent, fetchCart } from '../lib/api';
 import { getSessionToken } from '../lib/session';
 import { GuestCheckoutForm } from '../components/checkout/GuestCheckoutForm';
+import { StripePaymentForm } from '../components/checkout/StripePaymentForm';
 
 interface ReservationPageProps {
   slug: string;
   onNavigateToMap: () => void;
   onNavigateHome?: () => void;
+  onNavigateToConfirmation: (slug: string, orderId: string, accessToken: string) => void;
 }
+
 
 function formatPrice(price: number): string {
   return new Intl.NumberFormat('fr-FR', {
@@ -57,7 +60,9 @@ export const ReservationPage: React.FC<ReservationPageProps> = ({
   slug,
   onNavigateToMap,
   onNavigateHome,
+  onNavigateToConfirmation,
 }) => {
+
   const [event, setEvent] = useState<PublicEventResponse | null>(null);
   const [cart, setCart] = useState<CartResponse | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -231,101 +236,125 @@ export const ReservationPage: React.FC<ReservationPageProps> = ({
     );
   }
 
-  // 3. Success State (Order created, preparing payment)
+  // 3. Step 2: Stripe Elements Payment View
   if (completedOrder && event) {
     return (
       <div className="min-h-screen bg-[#FBFBFA] flex flex-col">
-        <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
-          <div className="max-w-4xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs">
+          <div className="max-w-5xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-between">
             <button
               onClick={onNavigateToMap}
-              className="inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-gray-900 transition"
+              className="inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-gray-900 transition active:scale-95"
             >
               <ArrowLeft className="w-4 h-4" />
-              <span>Retour au plan</span>
+              <span className="hidden sm:inline">Retour au plan</span>
+              <span className="sm:hidden">Plan</span>
             </button>
-            <div className="text-right">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full">
+            <div className="text-right flex items-center gap-2">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full font-mono">
                 Commande {completedOrder.order_number}
               </span>
             </div>
           </div>
         </header>
 
-        <main className="flex-1 max-w-2xl w-full mx-auto px-4 sm:px-6 py-10 space-y-6">
-          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm text-center space-y-4 animate-fade-in">
-            <div className="w-16 h-16 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto shadow-sm">
-              <CheckCircle2 className="w-9 h-9" />
+        <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-8">
+          <div className="mb-6">
+            <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-700 mb-1">
+              <span>Étape 2 sur 2</span>
+              <span>•</span>
+              <span>Règlement par carte bancaire</span>
             </div>
-
-            <h1 className="text-2xl font-extrabold text-gray-900">
-              Bravo {completedOrder.first_name}, vos coordonnées sont enregistrées !
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900">
+              Paiement sécurisé de vos stands
             </h1>
-
-            <p className="text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
-              Votre commande <strong className="text-gray-900">{completedOrder.order_number}</strong> a
-              été créée avec succès. Vos stands sont pré-réservés en attente de validation du
-              règlement.
+            <p className="text-sm text-gray-500 mt-1">
+              Vos coordonnées sont enregistrées. Veuillez saisir votre moyen de paiement pour confirmer définitivement votre réservation.
             </p>
+          </div>
 
-            {/* Recap Card */}
-            <div className="bg-gray-50 rounded-2xl p-5 border border-gray-200 text-left space-y-3 mt-6">
-              <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500">
-                Récapitulatif des emplacements
-              </h2>
-              <div className="divide-y divide-gray-200">
-                {completedOrder.items.map((it) => (
-                  <div key={it.id} className="py-2.5 flex items-center justify-between text-sm">
-                    <div>
-                      <span className="font-bold text-gray-900">
-                        Stand {it.spot_label || 'Emplacement'}
-                      </span>
-                      {it.spot_linear_meters && (
-                        <span className="text-gray-500 text-xs ml-2">
-                          ({formatMeters(it.spot_linear_meters)} m)
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Left Column: Order Recap */}
+            <div className="lg:col-span-5 space-y-4">
+              <div className="bg-white rounded-2xl p-6 border border-gray-200 shadow-sm space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                  <h2 className="text-sm font-bold uppercase tracking-wider text-gray-900 flex items-center gap-2">
+                    <ShoppingBag className="w-4 h-4 text-emerald-700" />
+                    <span>Récapitulatif ({completedOrder.items.length})</span>
+                  </h2>
+                  <span className="text-xs font-mono font-bold text-gray-500">
+                    {completedOrder.order_number}
+                  </span>
+                </div>
+
+                <div className="divide-y divide-gray-100 max-h-60 overflow-y-auto pr-1">
+                  {completedOrder.items.map((it) => (
+                    <div key={it.id} className="py-2.5 flex items-center justify-between text-sm">
+                      <div>
+                        <span className="font-bold text-gray-900">
+                          Stand {it.spot_label || 'Emplacement'}
                         </span>
-                      )}
+                        {it.spot_linear_meters && (
+                          <span className="text-gray-500 text-xs ml-2">
+                            ({formatMeters(it.spot_linear_meters)} m)
+                          </span>
+                        )}
+                      </div>
+                      <span className="font-mono font-semibold text-gray-800">
+                        {formatPrice(it.price)}
+                      </span>
                     </div>
-                    <span className="font-mono font-semibold text-gray-800">
-                      {formatPrice(it.price)}
-                    </span>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+                  <span className="text-sm font-bold text-gray-900">Total à payer</span>
+                  <span className="text-xl font-extrabold text-emerald-800 font-mono">
+                    {formatPrice(completedOrder.total_price)}
+                  </span>
+                </div>
               </div>
 
-              <div className="pt-3 border-t border-gray-200 flex items-center justify-between font-bold text-gray-900">
-                <span>Total à régler</span>
-                <span className="text-lg text-emerald-800 font-mono">
-                  {formatPrice(completedOrder.total_price)}
-                </span>
-              </div>
-            </div>
-
-            {/* Next Step: Stripe Payment Reassurance */}
-            <div className="p-4 bg-amber-50/70 border border-amber-200 rounded-2xl text-amber-900 text-left text-xs sm:text-sm flex items-start gap-3">
-              <CreditCard className="w-5 h-5 text-amber-700 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="font-bold">Étape 2 / 2 : Paiement sécurisé par carte bancaire</p>
-                <p className="text-amber-800 text-xs mt-0.5 leading-relaxed">
-                  L'encaissement direct et l'émission immédiate de l'attestation PDF téléchargeable
-                  seront activés à la prochaine étape (Story 2.4 : Paiement Stripe).
+              {/* Exhibitor Info Card */}
+              <div className="bg-gray-50 rounded-2xl p-5 border border-gray-200 text-xs text-gray-600 space-y-2">
+                <p className="font-bold text-gray-800 text-sm">Informations exposant</p>
+                <p>
+                  <strong>Nom :</strong> {completedOrder.first_name} {completedOrder.last_name}
+                </p>
+                <p>
+                  <strong>Email :</strong> {completedOrder.email}
+                </p>
+                <p>
+                  <strong>Téléphone :</strong> {completedOrder.phone}
+                </p>
+                <p>
+                  <strong>Adresse :</strong> {completedOrder.street_address}, {completedOrder.postal_code} {completedOrder.city}
                 </p>
               </div>
             </div>
 
-            <div className="pt-4 flex flex-col sm:flex-row gap-3 justify-center">
-              <button
-                onClick={onNavigateToMap}
-                className="px-6 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-sm font-bold shadow-sm transition"
-              >
-                Retourner au plan de l'événement
-              </button>
+            {/* Right Column: Stripe Elements Payment Form */}
+            <div className="lg:col-span-7">
+              <StripePaymentForm
+                slug={slug}
+                order={completedOrder}
+                onSuccess={(orderId) => {
+                  try {
+                    window.sessionStorage.setItem(`gvg_order_token_${orderId}`, completedOrder.access_token);
+                  } catch {
+                    // ignore
+                  }
+                  onNavigateToConfirmation(slug, orderId, completedOrder.access_token);
+                }}
+                onExpired={handleExpired}
+              />
             </div>
           </div>
         </main>
       </div>
     );
   }
+
 
   // 4. Expired State (Locks released)
   if (isExpired) {

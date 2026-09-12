@@ -44,3 +44,12 @@ export interface OrderOut {
   created_at?: string | null;
   updated_at?: string | null;
 }
+
+export interface PaymentIntentResponse {
+  client_secret: string;
+  publishable_key: string;
+  payment_intent_id: string;
+  amount_cents: number;
+  currency: string;
+}
+

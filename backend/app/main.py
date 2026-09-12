@@ -73,3 +73,8 @@ app.mount("/uploads", StaticFiles(directory=str(upload_dir)), name="uploads")
 
 # Mount API routers
 app.include_router(api_router, prefix=settings.API_V1_STR)
+
+# Also mount webhooks at root /webhooks for convenience
+from app.api.v1.endpoints import webhooks
+app.include_router(webhooks.router, prefix="/webhooks", tags=["webhooks"])
+

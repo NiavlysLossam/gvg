@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, case, and_, or_, update, text
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.event import Event
 from app.models.spot import Spot
@@ -19,7 +20,9 @@ from app.schemas.public import (
     CartSpotItem,
     CartResponse,
 )
-from app.schemas.order import GuestOrderCreate, OrderOut
+from app.schemas.order import GuestOrderCreate, OrderOut, PaymentIntentResponse
+from app.services import stripe_service
+
 
 router = APIRouter()
 
@@ -551,4 +554,123 @@ def get_public_order(
         )
 
     return order
+
+
+@router.post(
+    "/events/{slug}/orders/{order_id}/payment-intent",
+    response_model=PaymentIntentResponse,
+    summary="Create or retrieve Stripe PaymentIntent for a pending order",
+)
+def create_order_payment_intent(
+    slug: str,
+    order_id: uuid.UUID,
+    token: Optional[str] = Query(None, description="Order access token"),
+    x_access_token: Optional[str] = Header(None, alias="X-Access-Token"),
+    db: Session = Depends(get_db),
+) -> PaymentIntentResponse:
+    """
+    Public unauthenticated endpoint to initialize a Stripe PaymentIntent for a pending guest order.
+    Requires valid order access_token and confirms that spot hold locks are still active.
+    Returns client_secret and publishable_key for Stripe Elements checkout.
+    """
+    event = get_public_event_by_slug(db, slug)
+    access_token = (token or x_access_token or "").strip()
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Le jeton d'accès (token) est obligatoire pour régler la commande",
+        )
+
+    order = (
+        db.query(Order)
+        .options(joinedload(Order.items).joinedload(BookingItem.spot))
+        .filter(
+            Order.id == order_id,
+            Order.event_id == event.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable",
+        )
+
+    if not secrets.compare_digest(order.access_token, access_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé : jeton de commande invalide",
+        )
+
+    if order.status == "confirmed":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cette commande est déjà confirmée et réglée.",
+        )
+
+    if order.status != "pending":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cette commande ne peut plus être réglée (statut : {order.status}).",
+        )
+
+    # Verify that spot locks are still active
+    now_utc = datetime.now(timezone.utc)
+    expired = False
+    if not order.items:
+        expired = True
+    else:
+        for it in order.items:
+            spot = it.spot
+            if not spot or spot.status != "locked":
+                expired = True
+                break
+            locked_until = spot.locked_until
+            if locked_until is not None and locked_until.tzinfo is None:
+                locked_until = locked_until.replace(tzinfo=timezone.utc)
+            if locked_until is None or locked_until <= now_utc:
+                expired = True
+                break
+
+    if expired:
+        spot_ids = [it.spot_id for it in order.items]
+        if spot_ids:
+            stmt = (
+                update(Spot)
+                .where(
+                    Spot.id.in_(spot_ids),
+                    Spot.status == "locked",
+                )
+                .values(
+                    status="available",
+                    locked_until=None,
+                    locked_by_token=None,
+                    updated_at=func.now(),
+                )
+            )
+            db.execute(stmt)
+        order.status = "cancelled"
+        order.updated_at = func.now()
+        db.add(order)
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Votre réservation temporaire a expiré, veuillez resélectionner vos stands.",
+        )
+
+    client_secret, payment_intent_id = stripe_service.create_or_get_payment_intent(
+        db=db,
+        order=order,
+        event=event,
+    )
+
+    return PaymentIntentResponse(
+        client_secret=client_secret,
+        publishable_key=settings.STRIPE_PUBLISHABLE_KEY,
+        payment_intent_id=payment_intent_id,
+        amount_cents=order.total_price_cents,
+        currency="eur",
+    )
+
 
