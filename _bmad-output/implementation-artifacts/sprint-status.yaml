@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-12-2026 18:08
+last_updated: 09-12-2026 19:15
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -14,7 +14,7 @@ development_status:
   1-2-calibrage-fond-de-plan-satellite-ou-salle: done
   1-3-dessin-vectoriel-emplacements-leaflet-geoman: done
   1-4-duplication-rapide-snap-to-grid-numerotation-auto: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
 
   epic-2: backlog
   2-1-consultation-interactive-plan-public-mobile-first: backlog
@@ -42,4 +42,18 @@ development_status:
   5-3-scripts-deploiement-docker-compose-install-ubuntu: backlog
   epic-5-retrospective: optional
 
-action_items: []
+action_items:
+  - id: "epic-1-retro-item-1-batch-delete-endpoint"
+    epic: 1
+    action: "Implémenter un endpoint backend atomique DELETE /api/v1/events/{id}/spots/batch
+      pour la suppression groupée avant Epic 3"
+    owner: "Dev Backend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-12.md"
+  - id: "epic-1-retro-item-2-frontend-chunk-splitting"
+    epic: 1
+    action: "Configurer le découpage dynamique de code (Rollup chunk splitting) dans
+      vite.config.ts avant Epic 5"
+    owner: "Dev Frontend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-1-retro-2026-09-12.md"
