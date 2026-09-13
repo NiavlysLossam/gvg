@@ -33,7 +33,7 @@ development_status:
 
   epic-4: in-progress
   4-1-emails-transactionnels-automatises: done
-  4-2-rappels-automatiques-programmes-j7-j2: backlog
+  4-2-rappels-automatiques-programmes-j7-j2: done
   4-3-envoi-manuel-emails-groupes-variables-dynamiques: backlog
   epic-4-retrospective: optional
 

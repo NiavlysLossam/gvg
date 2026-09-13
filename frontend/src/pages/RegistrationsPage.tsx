@@ -42,6 +42,7 @@ import {
   cancelAndRefundAllEventOrders,
 } from '../lib/api';
 import { ManualBookingModal } from '../components/ManualBookingModal';
+import { RemindersCard } from '../components/RemindersCard';
 
 interface RegistrationsPageProps {
   event: EventModel;
@@ -532,6 +533,9 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
           </button>
         </div>
       )}
+
+      {/* Reminders Status & Triggers */}
+      <RemindersCard eventIdOrSlug={event.id} />
 
       {/* Jauge de remplissage épurée */}
       <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-3">

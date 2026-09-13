@@ -1,0 +1,35 @@
+======================================================================
+RAPPEL J-2 : DERNIÈRES CONSIGNES - JOUR J APPROCHE
+{{ event_title }}
+======================================================================
+
+Bonjour {{ first_name }} {{ last_name }},
+
+Votre vide-grenier "{{ event_title }}" a lieu après-demain !
+
+Voici le rappel des horaires et consignes d'accès pour le matin :
+
+- Numéro de commande : {{ order_number }}
+- Date : {{ event_date }}
+- Lieu / Accès : {{ event_location }}
+- Stand(s) réservé(s) : {{ spot_labels | join(', ') if spot_labels else 'Non spécifié' }}
+- Horaires d'installation exposants : {{ setup_hours }}
+- Ouverture au public : {{ public_hours }}
+
+----------------------------------------------------------------------
+CONSIGNES D'ACCÈS VÉHICULES & JOUR J
+----------------------------------------------------------------------
+1. Arrivée et filtrage : Suivez les panneaux "Accès Exposants".
+   Ayez votre numéro de commande ({{ order_number }}) à portée de main.
+2. Déchargement rapide : Déchargez votre véhicule sur votre stand,
+   puis déplacez-le immédiatement vers le parking exposants indiqué.
+3. Rappel obligatoire (Art. L310-2) : Présentez obligatoirement l'original de votre pièce d'identité
+   et votre formulaire d'attestation signée aux placiers.
+
+Afficher votre pass et votre commande :
+{{ confirmation_url }}
+
+Contact organisateur : {{ organizer_email }}
+======================================================================
+GVG - Plateforme de gestion de vide-greniers et brocantes
+

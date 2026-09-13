@@ -730,3 +730,51 @@ export async function cancelAndRefundAllEventOrders(
 
   return response.json();
 }
+
+export async function fetchEventReminderStatus(
+  eventIdOrSlug: string
+): Promise<import('../types/reminder').ReminderStatus> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/reminders/status`);
+  if (!response.ok) {
+    let detail = 'Erreur lors de la récupération du statut des rappels';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
+export async function triggerEventReminders(
+  eventIdOrSlug: string,
+  reminderType?: 'j7' | 'j2' | null,
+  force: boolean = false
+): Promise<import('../types/reminder').ReminderTriggerReport> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/reminders/trigger`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      reminder_type: reminderType,
+      force,
+    }),
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors du déclenchement des rappels';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+

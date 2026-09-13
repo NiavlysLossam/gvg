@@ -1,0 +1,34 @@
+======================================================================
+RAPPEL J-7 : VOTRE VIDE-GRENIER DANS 7 JOURS
+{{ event_title }}
+======================================================================
+
+Bonjour {{ first_name }} {{ last_name }},
+
+Votre réservation pour le vide-grenier "{{ event_title }}" est bien confirmée. L'événement a lieu dans 7 jours !
+
+Voici les informations pour préparer au mieux votre arrivée :
+
+- Numéro de commande : {{ order_number }}
+- Date : {{ event_date }}
+- Lieu / Adresse : {{ event_location }}
+- Stand(s) attribué(s) : {{ spot_labels | join(', ') if spot_labels else 'Non spécifié' }}
+- Métrage linéaire total : {{ total_linear_meters | default("0.0") }} m
+- Horaires d'installation exposants : {{ setup_hours }}
+- Ouverture au public : {{ public_hours }}
+
+----------------------------------------------------------------------
+DOCUMENTS OBLIGATOIRES LE JOUR J (Réglementation Art. L310-2)
+----------------------------------------------------------------------
+1. Pièce d'identité originale en cours de validité (CNI, Passeport, Permis).
+   Attention : les photocopies et photos sur smartphone ne sont pas admises.
+2. Attestation sur l'honneur signée (à présenter lors du contrôle d'émargement).
+3. Votre équipement personnel (tables, chaises, parasol/bâche, fond de caisse/monnaie).
+
+Consultez votre réservation et téléchargez votre attestation :
+{{ confirmation_url }}
+
+En cas de question, contactez l'organisateur : {{ organizer_email }}
+======================================================================
+GVG - Plateforme de gestion de vide-greniers et brocantes
+

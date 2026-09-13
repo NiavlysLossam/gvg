@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Rappel J-2 : Dernières consignes Jour J - {{ order_number }}{% endblock %}
+
+{% block content %}
+  <div style="text-align: center; margin-bottom: 24px;">
+    <span class="badge badge-amber">⚡ Échéance J-2 : Dernières Consignes</span>
+    <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Votre vide-grenier a lieu après-demain !</h2>
+    <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, le grand jour approche pour <strong>{{ event_title }}</strong>. Voici les consignes impératives pour l'accès du matin.</p>
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">Numéro de commande</span>
+      <span class="info-value">{{ order_number }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Date</span>
+      <span class="info-value">{{ event_date }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Lieu & Accès</span>
+      <span class="info-value">{{ event_location }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Stand(s) réservé(s)</span>
+      <span class="info-value">
+        {% for label in spot_labels %}
+          <span class="stand-pill">{{ label }}</span>
+        {% else %}
+          Non spécifié
+        {% endfor %}
+      </span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Horaires d'installation</span>
+      <span class="info-value" style="color: #d97706; font-weight: 800;">{{ setup_hours }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Ouverture au public</span>
+      <span class="info-value">{{ public_hours }}</span>
+    </div>
+  </div>
+
+  <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 18px; margin: 24px 0;">
+    <div style="font-weight: 700; color: #166534; font-size: 14px; margin-bottom: 8px;">
+      🚗 Consignes d'accès véhicules & Documents Jour J (Art. L310-2)
+    </div>
+    <ul style="margin: 0; padding-left: 20px; color: #14532d; font-size: 13px; line-height: 1.6;">
+      <li><strong>Arrivée et filtrage</strong> : Suivez les panneaux <em>"Accès Exposants"</em>. Préparez votre numéro de commande <strong>{{ order_number }}</strong> dès votre entrée.</li>
+      <li><strong>Déchargement rapide</strong> : Stationnez devant votre stand le temps strict du déchargement, puis déplacez immédiatement votre véhicule vers le parking dédié.</li>
+      <li><strong>Contrôle réglementaire obligatoire</strong> : Présentez obligatoirement l'original de votre pièce d'identité en cours de validité et votre formulaire d'attestation sur l'honneur signé aux placiers lors de l'émargement.</li>
+    </ul>
+  </div>
+
+  {% if confirmation_url %}
+    <div style="text-align: center; margin: 30px 0 16px;">
+      <a href="{{ confirmation_url }}" class="btn btn-primary">Afficher mon pass exposant & ma commande</a>
+    </div>
+    <p style="text-align: center; color: #9ca3af; font-size: 12px; margin: 0;">
+      Lien direct sécurisé :<br>
+      <a href="{{ confirmation_url }}" style="color: #059669; word-break: break-all;">{{ confirmation_url }}</a>
+    </p>
+  {% endif %}
+{% endblock %}
+
