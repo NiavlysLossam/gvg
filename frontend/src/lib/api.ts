@@ -641,3 +641,92 @@ export async function submitCancellationRequest(
 
   return response.json();
 }
+
+export async function refundOrder(
+  eventIdOrSlug: string,
+  orderId: string,
+  payload?: import('../types/order').OrderRefundAction
+): Promise<import('../types/order').AdminOrder> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/refund`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors du remboursement de la commande';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function rejectCancellationRequest(
+  eventIdOrSlug: string,
+  orderId: string,
+  payload: import('../types/order').OrderRejectCancellationAction
+): Promise<import('../types/order').AdminOrder> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/reject-cancellation`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = "Erreur lors du refus de la demande d'annulation";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function cancelAndRefundAllEventOrders(
+  eventIdOrSlug: string,
+  payload: import('../types/order').BulkEventCancelIn
+): Promise<import('../types/order').BulkEventCancelResponse> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/cancel-and-refund-all`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = "Erreur lors de l'annulation générale et du remboursement groupé";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}

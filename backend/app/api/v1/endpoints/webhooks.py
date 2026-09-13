@@ -160,4 +160,46 @@ async def stripe_webhook(
 
         return {"status": "ignored", "reason": f"order_status_{order.status}"}
 
+    elif event_type == "charge.refunded":
+        data_obj = event["data"]["object"] if isinstance(event, dict) else event.data.object
+        is_refunded = (
+            data_obj.get("refunded")
+            if isinstance(data_obj, dict)
+            else getattr(data_obj, "refunded", True)
+        )
+        if is_refunded is False:
+            logger.info("Stripe charge.refunded received for partial refund; skipping full order cancellation")
+            return {"status": "ignored", "reason": "partial_refund"}
+
+        payment_intent_id = (
+            data_obj.get("payment_intent")
+            if isinstance(data_obj, dict)
+            else getattr(data_obj, "payment_intent", None)
+        )
+        metadata = data_obj.get("metadata", {}) if isinstance(data_obj, dict) else getattr(data_obj, "metadata", {})
+        order_id = metadata.get("order_id") if isinstance(metadata, dict) else getattr(metadata, "order_id", None)
+
+        refunded_order = stripe_service.refund_order_from_charge(
+            db=db,
+            payment_intent_id=payment_intent_id,
+            order_id=order_id,
+            is_full_refund=True,
+        )
+
+        if not refunded_order:
+            logger.warning(
+                "Stripe charge.refunded could not be matched to an order: pi=%s, order_id=%s",
+                payment_intent_id,
+                order_id,
+            )
+            return {"status": "ignored", "reason": "order_not_found"}
+
+        return {
+            "status": "success",
+            "order_id": str(refunded_order.id),
+            "order_number": refunded_order.order_number,
+            "order_status": refunded_order.status,
+        }
+
     return {"status": "ignored", "event_type": event_type}
+

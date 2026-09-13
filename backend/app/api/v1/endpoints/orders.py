@@ -15,6 +15,10 @@ from app.schemas.order import (
     AdminOrderOut,
     AdminOrderListResponse,
     OrderApprovalAction,
+    OrderRefundAction,
+    OrderRejectCancellationAction,
+    BulkEventCancelIn,
+    BulkEventCancelResponse,
 )
 from app.services import stripe_service
 
@@ -152,6 +156,18 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         .scalar()
         or 0
     )
+    refunded_orders_count = (
+        db.query(func.count(Order.id))
+        .filter(Order.event_id == event.id, Order.status == "refunded")
+        .scalar()
+        or 0
+    )
+    cancelled_orders_count = (
+        db.query(func.count(Order.id))
+        .filter(Order.event_id == event.id, Order.status == "cancelled")
+        .scalar()
+        or 0
+    )
     offline_orders_count = (
         db.query(func.count(Order.id))
         .filter(
@@ -187,6 +203,8 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         offline_orders_count=offline_orders_count,
         pending_approval_orders_count=pending_approval_orders_count,
         cancellation_requested_orders_count=cancellation_requested_orders_count,
+        refunded_orders_count=refunded_orders_count,
+        cancelled_orders_count=cancelled_orders_count,
     )
 
 
@@ -299,6 +317,11 @@ def create_manual_booking(
     Rejects with 409 Conflict if any selected spot is already reserved, blocked, or actively locked.
     """
     event = get_event_by_id_or_slug(db, id_or_slug)
+    if event.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet événement a été annulé. Les réservations manuelles sont fermées.",
+        )
 
     # Validate that at least one spot is selected
     if not payload.spot_ids:
@@ -503,3 +526,141 @@ def reject_order(
         .first()
     )
     return AdminOrderOut.model_validate(refreshed_order)
+
+
+@router.post(
+    "/{id_or_slug}/orders/{order_id}/refund",
+    response_model=AdminOrderOut,
+    summary="Refund an order (Stripe or offline) and release associated spots",
+)
+def refund_order(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    payload: Optional[OrderRefundAction] = None,
+    db: Session = Depends(get_db),
+) -> AdminOrderOut:
+    """
+    Refund an order for an event.
+    - If paid via Stripe: calls Stripe Refund API (or cancels PI if pending_approval).
+    - If paid offline (check/cash/other): marks as refunded with audit trace in admin_notes, without Stripe API call.
+    - Releases associated spots back to 'available'.
+    - Idempotent: returns 200 without duplicate Stripe calls if already refunded.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+
+    order_query = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id, Order.event_id == event.id)
+    )
+    if db.bind and getattr(db.bind, "dialect", None) and db.bind.dialect.name != "sqlite":
+        order_query = order_query.with_for_update()
+    order = order_query.first()
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    reason = payload.reason if payload else None
+    amount_cents = payload.amount_cents if payload else None
+    refunded = stripe_service.process_order_refund(
+        db=db,
+        order=order,
+        reason=reason,
+        amount_cents=amount_cents,
+    )
+
+    refreshed_order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == refunded.id)
+        .first()
+    )
+    return AdminOrderOut.model_validate(refreshed_order)
+
+
+@router.post(
+    "/{id_or_slug}/orders/{order_id}/reject-cancellation",
+    response_model=AdminOrderOut,
+    summary="Reject an exhibitor cancellation request and keep spots reserved",
+)
+def reject_cancellation(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    payload: OrderRejectCancellationAction,
+    db: Session = Depends(get_db),
+) -> AdminOrderOut:
+    """
+    Reject an exhibitor's cancellation request for a confirmed order.
+    - Requires mandatory refusal reason.
+    - Reverts order status to 'confirmed'.
+    - Spots remain 'reserved'.
+    - Reason is archived in admin_notes.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+
+    order_query = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id, Order.event_id == event.id)
+    )
+    if db.bind and getattr(db.bind, "dialect", None) and db.bind.dialect.name != "sqlite":
+        order_query = order_query.with_for_update()
+    order = order_query.first()
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    rejected = stripe_service.reject_cancellation_request(
+        db=db,
+        order=order,
+        reason=payload.reason,
+    )
+
+    refreshed_order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == rejected.id)
+        .first()
+    )
+    return AdminOrderOut.model_validate(refreshed_order)
+
+
+@router.post(
+    "/{id_or_slug}/cancel-and-refund-all",
+    response_model=BulkEventCancelResponse,
+    summary="Emergency cancel event, refund/cancel all active orders, and release all spots",
+)
+def cancel_and_refund_all(
+    id_or_slug: str,
+    payload: BulkEventCancelIn,
+    db: Session = Depends(get_db),
+) -> BulkEventCancelResponse:
+    """
+    Cancel the entire event with double-confirmation protection.
+    - Requires confirmation equal to 'CONFIRMER', 'ANNULER', or exact event title.
+    - Resiliently refunds all Stripe orders and cancels offline/pending orders.
+    - Atomically sets all spots to 'available'.
+    - Sets event status to 'cancelled'.
+    - Returns execution report.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+
+    conf = payload.confirmation.strip()
+    valid_confs = {"confirmer", "annuler", event.title.strip().lower()}
+    if conf.lower() not in valid_confs:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Confirmation invalide. Veuillez saisir 'CONFIRMER', 'ANNULER' ou le titre exact de l'événement pour confirmer.",
+        )
+
+    report = stripe_service.cancel_and_refund_all_event_orders(
+        db=db,
+        event_id=event.id,
+        reason=payload.reason,
+    )
+    return BulkEventCancelResponse(**report)
+

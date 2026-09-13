@@ -279,6 +279,8 @@ class EventDashboardStats(BaseModel):
     offline_orders_count: int
     pending_approval_orders_count: int = 0
     cancellation_requested_orders_count: int = 0
+    refunded_orders_count: int = 0
+    cancelled_orders_count: int = 0
 
 
 class OrderApprovalAction(BaseModel):
@@ -420,5 +422,58 @@ class AdminOrderListResponse(BaseModel):
     items: List[AdminOrderOut]
     total: int
     stats: Optional[EventDashboardStats] = None
+
+
+class OrderRefundAction(BaseModel):
+    reason: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Motif interne du remboursement",
+    )
+    amount_cents: Optional[int] = Field(
+        default=None,
+        ge=50,
+        description="Montant partiel à rembourser en centimes (optionnel, remboursement total par défaut)",
+    )
+
+
+class OrderRejectCancellationAction(BaseModel):
+    reason: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Motif obligatoire du refus de la demande d'annulation",
+    )
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Le motif du refus de l'annulation est obligatoire.")
+        return cleaned
+
+
+class BulkEventCancelIn(BaseModel):
+    confirmation: str = Field(
+        ...,
+        min_length=1,
+        max_length=255,
+        description="Confirmation explicite ('CONFIRMER', 'ANNULER' ou titre exact de l'événement)",
+    )
+    reason: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Motif général de l'annulation de l'événement",
+    )
+
+
+class BulkEventCancelResponse(BaseModel):
+    total_processed: int
+    refunded_count: int
+    cancelled_count: int
+    failed_count: int
+    errors: List[str] = []
+    event_status: str = "cancelled"
 
 

@@ -225,6 +225,11 @@ def lock_public_spot(
         )
     token = token.strip()
     event = get_public_event_by_slug(db, slug)
+    if event.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet événement a été annulé. Les réservations sont fermées.",
+        )
 
     bind = db.get_bind()
     is_pg = (bind.dialect.name == "postgresql") if bind else False
@@ -383,6 +388,11 @@ def create_guest_order(
         )
 
     event = get_public_event_by_slug(db, slug)
+    if event.status == "cancelled":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cet événement a été annulé. Les réservations sont fermées.",
+        )
 
     # 1. Fetch all spots locked by this session token
     held_spots = (

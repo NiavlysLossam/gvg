@@ -534,3 +534,402 @@ def reject_and_cancel_order(
     db.refresh(order)
     logger.info("Order %s rejected, auth canceled and %d spots released", order.order_number, len(spot_ids))
     return order
+
+
+def process_order_refund(
+    db: Session,
+    order: Order,
+    reason: Optional[str] = None,
+    amount_cents: Optional[int] = None,
+) -> Order:
+    """
+    Arbitrate and process a refund for an order:
+    1. Idempotently return order if already 'refunded'.
+    2. Check that status is eligible ('cancellation_requested', 'confirmed', 'pending_approval').
+    3. If payment_method == 'stripe':
+       - If pending_approval: cancel pre-authorization in Stripe.
+       - If confirmed or cancellation_requested: call stripe.Refund.create.
+       - Handle errors idempotently if already refunded in Stripe, or raise 502 with clear message.
+    4. If payment_method in ('check', 'cash', 'other'):
+       - Do NOT call Stripe API. Mark refunded offline with trace in admin_notes.
+    5. Atomically release all associated spots to 'available' (locked_until=None, locked_by_token=None).
+    6. Transition order.status to 'refunded', save reason in admin_notes, update updated_at, commit and refresh.
+    """
+    if order.status == "refunded":
+        logger.info("Order %s already refunded; skipping redundant refund", order.order_number)
+        return order
+
+    if order.status not in ("cancellation_requested", "confirmed", "pending_approval"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Impossible de rembourser une commande avec le statut '{order.status}'.",
+        )
+
+    if amount_cents is not None and amount_cents > order.total_price_cents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Le montant du remboursement ({amount_cents / 100:.2f} €) ne peut pas dépasser le montant total de la commande ({order.total_price:.2f} €).",
+        )
+
+    # 1. Stripe payment handling
+    stripe_refund_id: Optional[str] = None
+    if order.payment_method == "stripe":
+        if not order.stripe_payment_intent_id:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Identifiant de paiement Stripe manquant pour cette commande.",
+            )
+        api_key = settings.STRIPE_SECRET_KEY
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="La clé secrète Stripe n'est pas configurée.",
+            )
+
+        if order.status == "pending_approval":
+            # Pre-authorization was not captured yet: cancel PI instead of refunding
+            try:
+                stripe.PaymentIntent.cancel(order.stripe_payment_intent_id, api_key=api_key)
+            except stripe.StripeError as exc:
+                err_msg = str(exc).lower()
+                if "already canceled" not in err_msg and "already been canceled" not in err_msg:
+                    logger.error("Stripe cancellation failed for order %s: %s", order.order_number, exc)
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Échec de l'annulation de l'autorisation Stripe : {exc}",
+                    )
+        else:
+            refund_kwargs: dict = {
+                "payment_intent": order.stripe_payment_intent_id,
+                "api_key": api_key,
+                "idempotency_key": f"refund_{order.id}",
+            }
+            if amount_cents is not None:
+                refund_kwargs["amount"] = amount_cents
+
+            try:
+                refund_obj = stripe.Refund.create(**refund_kwargs)
+                stripe_refund_id = getattr(refund_obj, "id", None) if refund_obj else None
+            except stripe.StripeError as exc:
+                err_msg = str(exc).lower()
+                err_code = getattr(exc, "code", "") or ""
+                if (
+                    "already been refunded" in err_msg
+                    or "already refunded" in err_msg
+                    or "charge_already_refunded" in err_msg
+                    or err_code == "charge_already_refunded"
+                ):
+                    logger.info(
+                        "PaymentIntent %s already refunded in Stripe, treating idempotently",
+                        order.stripe_payment_intent_id,
+                    )
+                else:
+                    logger.error(
+                        "Stripe refund failed for order %s (PI %s): %s",
+                        order.order_number,
+                        order.stripe_payment_intent_id,
+                        exc,
+                    )
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Échec du remboursement Stripe : {exc}",
+                    )
+    else:
+        logger.info(
+            "Processing offline refund for order %s (payment_method: %s) without Stripe API call",
+            order.order_number,
+            order.payment_method,
+        )
+
+    # 2. Release associated spots immediately
+    booking_items = db.query(BookingItem).filter(BookingItem.order_id == order.id).all()
+    spot_ids = [item.spot_id for item in booking_items]
+    if spot_ids:
+        stmt = (
+            update(Spot)
+            .where(Spot.id.in_(spot_ids))
+            .values(
+                status="available",
+                locked_until=None,
+                locked_by_token=None,
+                updated_at=func.now(),
+            )
+        )
+        db.execute(stmt)
+
+    # 3. Transition order status and record notes
+    order.status = "refunded"
+    existing_notes = order.admin_notes or ""
+    note_lines = []
+    if existing_notes:
+        note_lines.append(existing_notes)
+    if stripe_refund_id:
+        note_lines.append(f"Réf remboursement Stripe : {stripe_refund_id}")
+    if order.payment_method in ("check", "cash", "other"):
+        note_lines.append(f"Remboursement hors-ligne validé ({order.payment_method}).")
+    if reason and reason.strip():
+        note_lines.append(f"Motif du remboursement : {reason.strip()}")
+
+    if note_lines:
+        order.admin_notes = "\n".join(note_lines).strip()
+    order.updated_at = func.now()
+
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    logger.info("Order %s successfully refunded and %d spots released", order.order_number, len(spot_ids))
+    return order
+
+
+def reject_cancellation_request(
+    db: Session,
+    order: Order,
+    reason: Optional[str] = None,
+) -> Order:
+    """
+    Reject an exhibitor cancellation request:
+    1. Idempotently return order if already 'confirmed' and refusal was previously recorded.
+    2. Check that status is 'cancellation_requested'.
+    3. Require mandatory reason (400 if empty).
+    4. Transition status to 'confirmed'.
+    5. Spots remain 'reserved'.
+    6. Record refusal reason in admin_notes and clear active cancellation request timestamp.
+    """
+    if order.status == "confirmed":
+        if order.admin_notes and "Demande d'annulation refusée" in order.admin_notes:
+            logger.info("Order %s already confirmed following rejection; skipping redundant rejection", order.order_number)
+            return order
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Impossible de refuser la demande d'annulation : aucune demande d'annulation active sur cette commande.",
+        )
+
+    if order.status != "cancellation_requested":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Impossible de refuser la demande d'annulation : la commande a le statut '{order.status}' (attendu: 'cancellation_requested').",
+        )
+
+    if not reason or not reason.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le motif du refus de l'annulation est obligatoire.",
+        )
+
+    # Revert order status to confirmed while leaving spots reserved
+    order.status = "confirmed"
+    order.cancellation_requested_at = None
+    existing_notes = order.admin_notes or ""
+    refusal_entry = f"Demande d'annulation refusée : {reason.strip()}"
+    if existing_notes:
+        order.admin_notes = f"{existing_notes}\n{refusal_entry}".strip()
+    else:
+        order.admin_notes = refusal_entry
+    order.updated_at = func.now()
+
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    logger.info("Cancellation request for order %s rejected with reason: %s", order.order_number, reason)
+    return order
+
+
+def cancel_and_refund_all_event_orders(
+    db: Session,
+    event_id: uuid.UUID,
+    reason: Optional[str] = None,
+) -> dict:
+    """
+    Emergency bulk cancellation for an event:
+    1. Cancel event (status='cancelled').
+    2. Resiliently process each active order (confirmed, cancellation_requested, pending_approval, pending).
+    3. Stripe orders -> process_order_refund (or cancel auth for pending_approval).
+    4. Offline orders -> marked refunded/cancelled with notes.
+    5. Release all spots belonging to the event to 'available'.
+    6. Return detailed consolidated report.
+    """
+    event = db.query(Event).filter(Event.id == event_id).first()
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Événement introuvable",
+        )
+
+    active_statuses = ["confirmed", "cancellation_requested", "pending_approval", "pending"]
+    orders = (
+        db.query(Order)
+        .filter(
+            Order.event_id == event_id,
+            Order.status.in_(active_statuses),
+        )
+        .all()
+    )
+
+    total_processed = 0
+    refunded_count = 0
+    cancelled_count = 0
+    failed_count = 0
+    errors: list[str] = []
+
+    cancellation_note = (
+        reason.strip() if reason and reason.strip() else "Annulation générale de l'événement"
+    )
+
+    for ord_item in orders:
+        total_processed += 1
+        if ord_item.status == "pending_approval":
+            try:
+                reject_and_cancel_order(db=db, order=ord_item, reason=cancellation_note)
+                cancelled_count += 1
+            except Exception as exc:
+                db.rollback()
+                logger.error("Error cancelling pending approval order %s: %s", ord_item.order_number, exc)
+                failed_count += 1
+                errors.append(f"Commande {ord_item.order_number}: {exc}")
+                try:
+                    err_order = db.query(Order).filter(Order.id == ord_item.id).first()
+                    if err_order:
+                        existing = err_order.admin_notes or ""
+                        err_order.admin_notes = f"{existing}\n[Échec annulation pré-autorisation : {exc}]".strip()
+                        db.add(err_order)
+                        db.commit()
+                except Exception:
+                    db.rollback()
+        elif ord_item.status == "pending":
+            try:
+                ord_item.status = "cancelled"
+                existing = ord_item.admin_notes or ""
+                ord_item.admin_notes = f"{existing}\n{cancellation_note}".strip()
+                db.add(ord_item)
+                db.commit()
+                cancelled_count += 1
+            except Exception as exc:
+                db.rollback()
+                logger.error("Error cancelling pending order %s: %s", ord_item.order_number, exc)
+                failed_count += 1
+                errors.append(f"Commande {ord_item.order_number}: {exc}")
+        elif ord_item.status in ("confirmed", "cancellation_requested"):
+            try:
+                process_order_refund(db=db, order=ord_item, reason=cancellation_note)
+                refunded_count += 1
+            except Exception as exc:
+                db.rollback()
+                logger.error("Error refunding order %s: %s", ord_item.order_number, exc)
+                failed_count += 1
+                errors.append(f"Commande {ord_item.order_number}: {exc}")
+                try:
+                    err_order = db.query(Order).filter(Order.id == ord_item.id).first()
+                    if err_order:
+                        existing = err_order.admin_notes or ""
+                        err_order.admin_notes = f"{existing}\n[Échec remboursement annulation générale : {exc}]".strip()
+                        db.add(err_order)
+                        db.commit()
+                except Exception:
+                    db.rollback()
+
+    # Atomically release reserved and locked spots belonging to this event (preserves blocked spots)
+    stmt = (
+        update(Spot)
+        .where(
+            Spot.event_id == event_id,
+            Spot.status.in_(["reserved", "locked"]),
+        )
+        .values(
+            status="available",
+            locked_until=None,
+            locked_by_token=None,
+            updated_at=func.now(),
+        )
+    )
+    db.execute(stmt)
+
+    # Set event status to cancelled
+    event.status = "cancelled"
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+
+    return {
+        "total_processed": total_processed,
+        "refunded_count": refunded_count,
+        "cancelled_count": cancelled_count,
+        "failed_count": failed_count,
+        "errors": errors,
+        "event_status": event.status,
+    }
+
+
+def refund_order_from_charge(
+    db: Session,
+    payment_intent_id: Optional[str] = None,
+    order_id: Optional[str] = None,
+    is_full_refund: bool = True,
+) -> Optional[Order]:
+    """
+    Idempotently sync refund from Stripe 'charge.refunded' webhook event.
+    Releases spots to 'available' and marks order as 'refunded' only on full refund.
+    """
+    order: Optional[Order] = None
+    if order_id:
+        try:
+            uid = uuid.UUID(str(order_id))
+            order = db.query(Order).filter(Order.id == uid).first()
+        except ValueError:
+            pass
+
+    if not order and payment_intent_id:
+        order = db.query(Order).filter(Order.stripe_payment_intent_id == payment_intent_id).first()
+
+    if not order:
+        logger.warning(
+            "Webhook charge.refunded received for unknown order: order_id=%s, payment_intent_id=%s",
+            order_id,
+            payment_intent_id,
+        )
+        return None
+
+    if not is_full_refund:
+        logger.info("Webhook charge.refunded is partial; logging trace without releasing spots for order %s", order.order_number)
+        existing = order.admin_notes or ""
+        partial_note = "[Remboursement partiel détecté via webhook Stripe charge.refunded]"
+        order.admin_notes = f"{existing}\n{partial_note}".strip()
+        db.add(order)
+        db.commit()
+        db.refresh(order)
+        return order
+
+    if order.status == "refunded":
+        logger.info("Order %s already refunded; skipping redundant webhook transition", order.order_number)
+        return order
+
+    # Release spots
+    booking_items = db.query(BookingItem).filter(BookingItem.order_id == order.id).all()
+    spot_ids = [item.spot_id for item in booking_items]
+    if spot_ids:
+        stmt = (
+            update(Spot)
+            .where(Spot.id.in_(spot_ids))
+            .values(
+                status="available",
+                locked_until=None,
+                locked_by_token=None,
+                updated_at=func.now(),
+            )
+        )
+        db.execute(stmt)
+
+    order.status = "refunded"
+    existing = order.admin_notes or ""
+    sync_note = "Remboursement synchronisé via webhook Stripe charge.refunded."
+    if existing:
+        order.admin_notes = f"{existing}\n{sync_note}".strip()
+    else:
+        order.admin_notes = sync_note
+    order.updated_at = func.now()
+
+    db.add(order)
+    db.commit()
+    db.refresh(order)
+    logger.info("Order %s updated to 'refunded' via webhook charge.refunded and spots released", order.order_number)
+    return order
+

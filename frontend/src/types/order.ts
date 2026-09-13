@@ -148,6 +148,8 @@ export interface DashboardStats {
   offline_orders_count: number;
   pending_approval_orders_count?: number;
   cancellation_requested_orders_count?: number;
+  refunded_orders_count?: number;
+  cancelled_orders_count?: number;
 }
 
 export interface OrderApprovalAction {
@@ -173,6 +175,29 @@ export interface OfflineBookingPayload {
   offline_payment_reference?: string;
   admin_notes?: string;
   custom_price_cents?: number;
+}
+
+export interface OrderRefundAction {
+  reason?: string;
+  amount_cents?: number;
+}
+
+export interface OrderRejectCancellationAction {
+  reason: string;
+}
+
+export interface BulkEventCancelIn {
+  confirmation: string;
+  reason?: string;
+}
+
+export interface BulkEventCancelResponse {
+  total_processed: number;
+  refunded_count: number;
+  cancelled_count: number;
+  failed_count: number;
+  errors: string[];
+  event_status: string;
 }
 
 
