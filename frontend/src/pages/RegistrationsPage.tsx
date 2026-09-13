@@ -232,7 +232,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               </span>
             </div>
             <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-              Suivi en temps réel du remplissage et enregistrement des règlements manuels en mairie.
+              Suivi en temps réel du remplissage et enregistrement des règlements manuels au guichet.
             </p>
           </div>
         </div>
@@ -381,7 +381,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
         <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-indigo-700">
-              Hors-ligne (Mairie)
+              Hors-ligne (Guichet)
             </span>
             <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <Banknote className="w-4 h-4" />

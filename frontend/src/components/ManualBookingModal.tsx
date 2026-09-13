@@ -210,7 +210,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
               Saisie Manuelle Hors-Ligne
             </span>
             <h3 className="text-lg font-bold text-gray-900 mt-1">
-              Enregistrer une inscription (Mairie / Guichet)
+              Enregistrer une inscription (Guichet / Hors-ligne)
             </h3>
           </div>
           <button
@@ -451,7 +451,7 @@ export const ManualBookingModal: React.FC<ManualBookingModalProps> = ({
                   {paymentMethod === 'other' && <Check className="w-3.5 h-3.5 text-purple-600" />}
                 </div>
                 <div className="text-xs font-bold">Autre / Gratuité</div>
-                <div className="text-[10px] text-gray-500">Bénévole, mairie</div>
+                <div className="text-[10px] text-gray-500">Bénévole, guichet</div>
               </button>
             </div>
 

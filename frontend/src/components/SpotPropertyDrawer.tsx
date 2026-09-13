@@ -195,7 +195,7 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between gap-2">
                 <div className="text-xs text-emerald-900">
                   <div className="font-bold">Stand libre</div>
-                  <div className="text-[11px] text-emerald-700">Enregistrer une inscription mairie</div>
+                  <div className="text-[11px] text-emerald-700">Enregistrer une inscription au guichet</div>
                 </div>
                 <button
                   type="button"
