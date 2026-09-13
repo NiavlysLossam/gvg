@@ -1,12 +1,13 @@
 import logging
 import uuid
-from fastapi import APIRouter, Request, Header, HTTPException, Depends, status
+from fastapi import APIRouter, Request, Header, HTTPException, Depends, status, BackgroundTasks
 from sqlalchemy.orm import Session
 import stripe
 
 from app.core.database import get_db
+from app.models.event import Event
 from app.models.order import Order
-from app.services import stripe_service
+from app.services import stripe_service, email_service
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,7 @@ router = APIRouter()
 )
 async def stripe_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     stripe_signature: str = Header(None, alias="Stripe-Signature"),
     db: Session = Depends(get_db),
 ):
@@ -80,6 +82,14 @@ async def stripe_webhook(
             )
             return {"status": "ignored", "reason": "order_not_found"}
 
+        event_obj = db.query(Event).filter(Event.id == confirmed_order.event_id).first()
+        if event_obj and confirmed_order.email:
+            background_tasks.add_task(
+                email_service.send_order_confirmation_email,
+                order=confirmed_order.id,
+                event=event_obj.id,
+            )
+
         return {
             "status": "success",
             "order_id": str(confirmed_order.id),
@@ -114,6 +124,14 @@ async def stripe_webhook(
             )
             return {"status": "ignored", "reason": "order_not_found"}
 
+        event_obj = db.query(Event).filter(Event.id == held_order.event_id).first()
+        if event_obj and held_order.email:
+            background_tasks.add_task(
+                email_service.send_order_confirmation_email,
+                order=held_order.id,
+                event=event_obj.id,
+            )
+
         return {
             "status": "success",
             "order_id": str(held_order.id),
@@ -146,11 +164,22 @@ async def stripe_webhook(
             return {"status": "ignored", "reason": "order_not_found"}
 
         if order.status in ("pending_approval", "pending"):
+            was_pending_approval = (order.status == "pending_approval")
             rejected_order = stripe_service.reject_and_cancel_order(
                 db=db,
                 order=order,
                 reason="Annulation Stripe (expiration pré-autorisation ou annulation bancaire)",
             )
+            event_obj = db.query(Event).filter(Event.id == rejected_order.event_id).first()
+            # Only notify exhibitor of rejection if order had actually been submitted for moderation
+            if was_pending_approval and event_obj and rejected_order.email:
+                background_tasks.add_task(
+                    email_service.send_moderation_decision_email,
+                    order=rejected_order.id,
+                    event=event_obj.id,
+                    approved=False,
+                    reason="Annulation Stripe de la pré-autorisation",
+                )
             return {
                 "status": "success",
                 "order_id": str(rejected_order.id),
@@ -193,6 +222,18 @@ async def stripe_webhook(
                 order_id,
             )
             return {"status": "ignored", "reason": "order_not_found"}
+
+        event_obj = db.query(Event).filter(Event.id == refunded_order.event_id).first()
+        # Only send individual arbitration email if event was not cancelled in bulk
+        if event_obj and event_obj.status != "cancelled" and refunded_order.email:
+            background_tasks.add_task(
+                email_service.send_cancellation_arbitration_email,
+                order=refunded_order.id,
+                event=event_obj.id,
+                accepted=True,
+                reason="Remboursement Stripe confirmé",
+                refund_amount=refunded_order.total_price_cents / 100.0,
+            )
 
         return {
             "status": "success",

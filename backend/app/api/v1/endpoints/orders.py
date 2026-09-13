@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, select, or_, and_
 
@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.models.event import Event
 from app.models.spot import Spot
 from app.models.order import Order, BookingItem
+from app.models.email_log import EmailLog
 from app.schemas.order import (
     OfflineOrderCreate,
     EventDashboardStats,
@@ -20,7 +21,8 @@ from app.schemas.order import (
     BulkEventCancelIn,
     BulkEventCancelResponse,
 )
-from app.services import stripe_service
+from app.schemas.email import EmailLogListResponse, EmailLogOut
+from app.services import stripe_service, email_service
 
 router = APIRouter()
 
@@ -309,6 +311,7 @@ def list_event_orders(
 def create_manual_booking(
     id_or_slug: str,
     payload: OfflineOrderCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> AdminOrderOut:
     """
@@ -412,6 +415,13 @@ def create_manual_booking(
         .first()
     )
 
+    if order.email:
+        background_tasks.add_task(
+            email_service.send_order_confirmation_email,
+            order=order.id,
+            event=event.id,
+        )
+
     return AdminOrderOut.model_validate(order)
 
 
@@ -423,6 +433,7 @@ def create_manual_booking(
 def approve_order(
     id_or_slug: str,
     order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     payload: Optional[OrderApprovalAction] = None,
     db: Session = Depends(get_db),
 ) -> AdminOrderOut:
@@ -468,6 +479,16 @@ def approve_order(
         .filter(Order.id == approved_order.id)
         .first()
     )
+
+    if refreshed_order.email:
+        background_tasks.add_task(
+            email_service.send_moderation_decision_email,
+            order=refreshed_order.id,
+            event=event.id,
+            approved=True,
+            reason=notes,
+        )
+
     return AdminOrderOut.model_validate(refreshed_order)
 
 
@@ -479,6 +500,7 @@ def approve_order(
 def reject_order(
     id_or_slug: str,
     order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     payload: Optional[OrderApprovalAction] = None,
     db: Session = Depends(get_db),
 ) -> AdminOrderOut:
@@ -525,6 +547,16 @@ def reject_order(
         .filter(Order.id == rejected_order.id)
         .first()
     )
+
+    if refreshed_order.email:
+        background_tasks.add_task(
+            email_service.send_moderation_decision_email,
+            order=refreshed_order.id,
+            event=event.id,
+            approved=False,
+            reason=reason,
+        )
+
     return AdminOrderOut.model_validate(refreshed_order)
 
 
@@ -536,6 +568,7 @@ def reject_order(
 def refund_order(
     id_or_slug: str,
     order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     payload: Optional[OrderRefundAction] = None,
     db: Session = Depends(get_db),
 ) -> AdminOrderOut:
@@ -577,6 +610,22 @@ def refund_order(
         .filter(Order.id == refunded.id)
         .first()
     )
+
+    if refreshed_order.email:
+        refund_amount = (
+            (amount_cents / 100.0)
+            if amount_cents is not None
+            else (refreshed_order.total_price_cents / 100.0)
+        )
+        background_tasks.add_task(
+            email_service.send_cancellation_arbitration_email,
+            order=refreshed_order.id,
+            event=event.id,
+            accepted=True,
+            reason=reason,
+            refund_amount=refund_amount,
+        )
+
     return AdminOrderOut.model_validate(refreshed_order)
 
 
@@ -588,6 +637,7 @@ def refund_order(
 def reject_cancellation(
     id_or_slug: str,
     order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     payload: OrderRejectCancellationAction,
     db: Session = Depends(get_db),
 ) -> AdminOrderOut:
@@ -626,6 +676,16 @@ def reject_cancellation(
         .filter(Order.id == rejected.id)
         .first()
     )
+
+    if refreshed_order.email:
+        background_tasks.add_task(
+            email_service.send_cancellation_arbitration_email,
+            order=refreshed_order.id,
+            event=event.id,
+            accepted=False,
+            reason=payload.reason,
+        )
+
     return AdminOrderOut.model_validate(refreshed_order)
 
 
@@ -637,6 +697,7 @@ def reject_cancellation(
 def cancel_and_refund_all(
     id_or_slug: str,
     payload: BulkEventCancelIn,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
 ) -> BulkEventCancelResponse:
     """
@@ -645,6 +706,7 @@ def cancel_and_refund_all(
     - Resiliently refunds all Stripe orders and cancels offline/pending orders.
     - Atomically sets all spots to 'available'.
     - Sets event status to 'cancelled'.
+    - Enqueues event cancellation notification email to all exhibitors.
     - Returns execution report.
     """
     event = get_event_by_id_or_slug(db, id_or_slug)
@@ -657,10 +719,62 @@ def cancel_and_refund_all(
             detail="Confirmation invalide. Veuillez saisir 'CONFIRMER', 'ANNULER' ou le titre exact de l'événement pour confirmer.",
         )
 
+    # Fetch active orders with an email before they are transitioned
+    active_orders = (
+        db.query(Order)
+        .filter(
+            Order.event_id == event.id,
+            Order.status.in_(["confirmed", "cancellation_requested", "pending_approval"]),
+            Order.email.is_not(None),
+        )
+        .all()
+    )
+
     report = stripe_service.cancel_and_refund_all_event_orders(
         db=db,
         event_id=event.id,
         reason=payload.reason,
     )
+
+    for ord_item in active_orders:
+        background_tasks.add_task(
+            email_service.send_event_cancellation_email,
+            order=ord_item.id,
+            event=event.id,
+            reason=payload.reason,
+        )
+
     return BulkEventCancelResponse(**report)
+
+
+@router.get(
+    "/{id_or_slug}/orders/{order_id}/emails",
+    response_model=EmailLogListResponse,
+    summary="List email audit logs for an order",
+)
+def list_order_emails(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> EmailLogListResponse:
+    """Retrieve audit history of emails sent (or simulated/failed) for this order."""
+    event = get_event_by_id_or_slug(db, id_or_slug)
+    order = db.query(Order).filter(Order.id == order_id, Order.event_id == event.id).first()
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    logs = (
+        db.query(EmailLog)
+        .filter(EmailLog.order_id == order_id)
+        .order_by(EmailLog.created_at.desc())
+        .all()
+    )
+
+    return EmailLogListResponse(
+        items=[EmailLogOut.model_validate(log) for log in logs],
+        total=len(logs),
+    )
 

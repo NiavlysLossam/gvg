@@ -2,7 +2,7 @@ import uuid
 import secrets
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status, BackgroundTasks
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, case, and_, or_, update, text, select
 
@@ -21,7 +21,7 @@ from app.schemas.public import (
     CartResponse,
 )
 from app.schemas.order import GuestOrderCreate, OrderOut, PaymentIntentResponse, CancellationRequestIn
-from app.services import stripe_service
+from app.services import stripe_service, email_service
 
 
 router = APIRouter()
@@ -536,6 +536,7 @@ def create_guest_order(
 def get_public_order(
     slug: str,
     order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
     token: Optional[str] = Query(None, description="Order access token"),
     x_access_token: Optional[str] = Header(None, alias="X-Access-Token"),
     db: Session = Depends(get_db),
@@ -586,7 +587,7 @@ def get_public_order(
                     if (isinstance(pi, dict) and "amount_received" in pi and pi.get("amount_received") is not None)
                     else (pi.get("amount") if isinstance(pi, dict) else (getattr(pi, "amount_received", None) or getattr(pi, "amount", None)))
                 )
-                stripe_service.confirm_order_from_payment_intent(
+                confirmed_order = stripe_service.confirm_order_from_payment_intent(
                     db,
                     payment_intent_id=order.stripe_payment_intent_id,
                     order_id=str(order.id),
@@ -594,13 +595,19 @@ def get_public_order(
                     currency=pi.get("currency") if isinstance(pi, dict) else getattr(pi, "currency", None),
                 )
                 db.refresh(order)
+                if confirmed_order and confirmed_order.email:
+                    background_tasks.add_task(
+                        email_service.send_order_confirmation_email,
+                        order=confirmed_order.id,
+                        event=event.id,
+                    )
             elif pi_status == "requires_capture" and order.status == "pending":
                 amount_capturable = (
                     pi.get("amount_capturable")
                     if (isinstance(pi, dict) and "amount_capturable" in pi and pi.get("amount_capturable") is not None)
                     else (pi.get("amount") if isinstance(pi, dict) else (getattr(pi, "amount_capturable", None) or getattr(pi, "amount", None)))
                 )
-                stripe_service.hold_order_for_approval(
+                held_order = stripe_service.hold_order_for_approval(
                     db,
                     payment_intent_id=order.stripe_payment_intent_id,
                     order_id=str(order.id),
@@ -608,6 +615,12 @@ def get_public_order(
                     currency=pi.get("currency") if isinstance(pi, dict) else getattr(pi, "currency", None),
                 )
                 db.refresh(order)
+                if held_order and held_order.email:
+                    background_tasks.add_task(
+                        email_service.send_order_confirmation_email,
+                        order=held_order.id,
+                        event=event.id,
+                    )
         except Exception:
             pass
 

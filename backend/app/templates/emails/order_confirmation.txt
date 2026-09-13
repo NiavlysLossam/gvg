@@ -1,0 +1,47 @@
+CONFIRMATION DE VOTRE INSCRIPTION - {{ event_title }}
+
+Bonjour {{ first_name }} {{ last_name }},
+
+{% if status == 'pending_approval' %}
+Votre demande d'inscription pour l'événement "{{ event_title }}" a bien été enregistrée.
+Elle est actuellement en attente de validation par l'organisateur.
+Votre pré-autorisation bancaire est confirmée, aucun débit définitif n'interviendra avant validation.
+{% else %}
+Votre réservation pour l'événement "{{ event_title }}" est bien confirmée !
+{% endif %}
+
+RÉCAPITULATIF DE LA COMMANDE :
+----------------------------------------
+- Numéro de commande : {{ order_number }}
+- Stand(s) : {{ spot_labels | join(", ") }}
+- Métrage total : {{ total_linear_meters }} m
+- Montant total : {{ total_price }} €
+- Mode de règlement : {{ payment_method }}
+{% if offline_reference %}
+- Référence de règlement : {{ offline_reference }}
+{% endif %}
+
+INFOS PRATIQUES POUR LE JOUR J :
+----------------------------------------
+- Date : {{ event_date }}
+- Adresse : {{ event_location }}
+{% if setup_hours %}
+- Horaires d'installation : {{ setup_hours }}
+{% endif %}
+{% if public_hours %}
+- Ouverture au public : {{ public_hours }}
+{% endif %}
+
+Rappel : Munissez-vous de votre pièce d'identité originale et de votre attestation sur l'honneur signée.
+
+ACCÈS DIRECT À VOTRE RÉSERVATION :
+{{ confirmation_url }}
+
+DEMANDE D'ANNULATION :
+Si vous avez un empêchement, vous pouvez soumettre une demande d'annulation via ce lien :
+{{ cancellation_url }}
+
+---
+GVG (Gestion de Vide-Greniers)
+Contact organisateur : {{ organizer_email }}
+

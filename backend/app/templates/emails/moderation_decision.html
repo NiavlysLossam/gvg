@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+
+{% block title %}Décision d'inscription - {{ order_number }}{% endblock %}
+
+{% block content %}
+  <div style="text-align: center; margin-bottom: 24px;">
+    {% if approved %}
+      <span class="badge badge-success">✓ Inscription Validée</span>
+      <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Votre inscription a été validée !</h2>
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, l'organisateur a examiné et validé votre dossier.</p>
+    {% else %}
+      <span class="badge badge-red">✕ Inscription Non Retenue</span>
+      <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Inscription non retenue</h2>
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, l'organisateur n'a pas pu valider votre demande d'inscription.</p>
+    {% endif %}
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">Numéro de commande</span>
+      <span class="info-value">{{ order_number }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Événement</span>
+      <span class="info-value">{{ event_title }}</span>
+    </div>
+    {% if approved %}
+      <div class="info-row">
+        <span class="info-label">Stand(s) confirmés</span>
+        <span class="info-value">
+          {% for label in spot_labels %}
+            <span class="stand-pill">{{ label }}</span>
+          {% else %}
+            Non spécifié
+          {% endfor %}
+        </span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Règlement débité</span>
+        <span class="info-value" style="color: #059669; font-weight: 800;">{{ total_price }} €</span>
+      </div>
+    {% else %}
+      <div class="info-row">
+        <span class="info-label">Règlement</span>
+        <span class="info-value" style="color: #059669;">Pré-autorisation annulée (aucun débit)</span>
+      </div>
+      {% if reason %}
+        <div class="info-row">
+          <span class="info-label">Motif de l'organisateur</span>
+          <span class="info-value" style="color: #b91c1c;">{{ reason }}</span>
+        </div>
+      {% endif %}
+    {% endif %}
+  </div>
+
+  {% if approved %}
+    <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+      <h3 style="margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #065f46;">📍 Rendez-vous sur place le Jour J !</h3>
+      <p style="margin: 4px 0; font-size: 13px; color: #047857;"><strong>Lieu :</strong> {{ event_location }}</p>
+      {% if setup_hours %}
+        <p style="margin: 4px 0; font-size: 13px; color: #047857;"><strong>Installation exposants :</strong> {{ setup_hours }}</p>
+      {% endif %}
+    </div>
+    <div style="text-align: center; margin-top: 24px;">
+      {% if confirmation_url %}
+        <a href="{{ confirmation_url }}" class="btn btn-primary">Consulter ma réservation</a>
+      {% endif %}
+    </div>
+  {% else %}
+    <p style="font-size: 13px; color: #4b5563; text-align: center; margin-top: 20px;">
+      La pré-autorisation bancaire a été intégralement annulée. Les stands pré-réservés ont été remis en disponibilité.
+    </p>
+  {% endif %}
+{% endblock %}
+

@@ -1,0 +1,23 @@
+ANNULATION DU VIDE-GRENIER - {{ event_title }}
+
+Bonjour {{ first_name }} {{ last_name }},
+
+Nous avons le regret de vous annoncer que l'événement "{{ event_title }}" qui devait se tenir le {{ event_date }} est annulé.
+
+{% if reason %}
+Motif de l'annulation : {{ reason }}
+{% endif %}
+
+VOTRE COMMANDE N° {{ order_number }} :
+{% if payment_method == 'stripe' %}
+Le montant de {{ total_price }} € a été intégralement remboursé sur votre carte bancaire (délai interbancaire de 5 à 10 jours ouvrés).
+{% else %}
+Votre commande hors-ligne a été annulée. Veuillez contacter l'organisateur pour la restitution de votre règlement.
+{% endif %}
+
+Merci de votre compréhension.
+
+---
+GVG (Gestion de Vide-Greniers)
+Contact organisateur : {{ organizer_email }}
+

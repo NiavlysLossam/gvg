@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}GVG - Gestion de Vide-Greniers{% endblock %}</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #f4f6f8;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      color: #1f2937;
+      line-height: 1.5;
+    }
+    .wrapper {
+      width: 100%;
+      background-color: #f4f6f8;
+      padding: 24px 12px;
+      box-sizing: border-box;
+    }
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #ffffff;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      border: 1px solid #e5e7eb;
+    }
+    .header {
+      background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+      color: #ffffff;
+      padding: 28px 24px;
+      text-align: center;
+    }
+    .header h1 {
+      margin: 0;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .header .subtitle {
+      margin-top: 6px;
+      font-size: 13px;
+      opacity: 0.9;
+    }
+    .content {
+      padding: 32px 24px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 9999px;
+      font-size: 12px;
+      font-weight: 700;
+    }
+    .badge-success {
+      background-color: #ecfdf5;
+      color: #065f46;
+      border: 1px solid #a7f3d0;
+    }
+    .badge-amber {
+      background-color: #fffbeb;
+      color: #92400e;
+      border: 1px solid #fde68a;
+    }
+    .badge-red {
+      background-color: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fecaca;
+    }
+    .info-box {
+      background-color: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin: 20px 0;
+    }
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 13px;
+      border-bottom: 1px dashed #e5e7eb;
+    }
+    .info-row:last-child {
+      border-bottom: none;
+    }
+    .info-label {
+      color: #6b7280;
+    }
+    .info-value {
+      font-weight: 700;
+      color: #111827;
+      text-align: right;
+    }
+    .btn {
+      display: inline-block;
+      padding: 12px 24px;
+      border-radius: 10px;
+      font-size: 14px;
+      font-weight: 700;
+      text-decoration: none;
+      text-align: center;
+      margin: 10px 0;
+    }
+    .btn-primary {
+      background-color: #059669;
+      color: #ffffff !important;
+    }
+    .btn-secondary {
+      background-color: #f3f4f6;
+      color: #374151 !important;
+      border: 1px solid #d1d5db;
+    }
+    .footer {
+      background-color: #f9fafb;
+      padding: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: #6b7280;
+      border-top: 1px solid #e5e7eb;
+    }
+    .footer a {
+      color: #059669;
+      text-decoration: none;
+    }
+    .stand-pill {
+      display: inline-block;
+      background-color: #e5e7eb;
+      color: #1f2937;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-weight: bold;
+      font-size: 12px;
+      margin: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <div class="container">
+      <div class="header">
+        <h1>{{ event_title | default("Vide-Greniers") }}</h1>
+        {% if event_date %}
+          <div class="subtitle">📅 {{ event_date }}</div>
+        {% endif %}
+      </div>
+      <div class="content">
+        {% block content %}{% endblock %}
+      </div>
+      <div class="footer">
+        <p>Cet email vous a été adressé automatiquement suite à votre réservation sur <strong>GVG (Gestion de Vide-Greniers)</strong>.</p>
+        {% if organizer_email %}
+          <p>Une question pour l'organisateur ? Écrivez à <a href="mailto:{{ organizer_email }}">{{ organizer_email }}</a>.</p>
+        {% endif %}
+        <p style="margin-top: 12px; font-size: 11px; color: #9ca3af;">Conformément à la réglementation (Art. L310-2 du Code de commerce), merci de conserver ce document.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+

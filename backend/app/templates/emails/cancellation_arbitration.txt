@@ -1,0 +1,34 @@
+ARBITRAGE DE VOTRE DEMANDE D'ANNULATION - {{ event_title }}
+
+Bonjour {{ first_name }} {{ last_name }},
+
+{% if accepted %}
+Votre demande d'annulation pour la commande n° {{ order_number }} a été validée par l'organisateur.
+Un remboursement de {{ refund_amount | default(total_price) }} € a été émis.
+
+{% if payment_method == 'stripe' %}
+Le montant sera recrédité sur la carte bancaire ayant servi au paiement sous 5 à 10 jours ouvrés.
+{% else %}
+Pour les paiements hors-ligne, rapprochez-vous de l'organisateur pour la restitution.
+{% endif %}
+{% if reason %}
+Note de l'organisateur : {{ reason }}
+{% endif %}
+
+Vos stands ont été remis en disponibilité.
+{% else %}
+L'organisateur n'a pas pu donner une suite favorable à votre demande d'annulation pour la commande n° {{ order_number }}.
+Votre réservation reste donc active et confirmée pour le {{ event_date }}.
+
+{% if reason %}
+Motif du refus : {{ reason }}
+{% endif %}
+
+Consulter votre réservation :
+{{ confirmation_url }}
+{% endif %}
+
+---
+GVG (Gestion de Vide-Greniers)
+Contact organisateur : {{ organizer_email }}
+

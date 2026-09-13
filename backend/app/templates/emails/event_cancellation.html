@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+
+{% block title %}Annulation du vide-grenier - {{ event_title }}{% endblock %}
+
+{% block content %}
+  <div style="text-align: center; margin-bottom: 24px;">
+    <span class="badge badge-red">⚠️ Événement Annulé</span>
+    <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #991b1b;">Annulation du vide-grenier</h2>
+    <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, nous vous informons de l'annulation de l'événement.</p>
+  </div>
+
+  <div class="info-box" style="border-left: 4px solid #ef4444;">
+    <div class="info-row">
+      <span class="info-label">Événement annulé</span>
+      <span class="info-value">{{ event_title }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Date initialement prévue</span>
+      <span class="info-value">{{ event_date }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Numéro de votre commande</span>
+      <span class="info-value">{{ order_number }}</span>
+    </div>
+    {% if reason %}
+      <div class="info-row">
+        <span class="info-label">Motif communiqué</span>
+        <span class="info-value" style="color: #b91c1c;">{{ reason }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+    <h3 style="margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #991b1b;">💳 Modalités de remboursement</h3>
+    {% if payment_method == 'stripe' %}
+      <p style="margin: 4px 0; font-size: 13px; color: #7f1d1d;">
+        L'intégralité du montant réglé (<strong>{{ total_price }} €</strong>) a été remboursée sur votre carte bancaire. Les fonds apparaîtront sur votre compte bancaire d'ici 5 à 10 jours ouvrés selon votre banque.
+      </p>
+    {% else %}
+      <p style="margin: 4px 0; font-size: 13px; color: #7f1d1d;">
+        Votre inscription hors-ligne ({{ total_price }} €) a été annulée. Pour la restitution de votre chèque ou de vos espèces, veuillez contacter directement l'organisateur.
+      </p>
+    {% endif %}
+  </div>
+
+  <p style="font-size: 13px; color: #4b5563; text-align: center; margin-top: 20px;">
+    L'organisateur et toute l'équipe bénévole vous remercient de votre compréhension face à cet imprévu.
+  </p>
+{% endblock %}
+

@@ -1,0 +1,24 @@
+DÉCISION CONCERNANT VOTRE INSCRIPTION - {{ event_title }}
+
+Bonjour {{ first_name }} {{ last_name }},
+
+{% if approved %}
+Votre inscription pour l'événement "{{ event_title }}" a été validée avec succès par l'organisateur !
+Votre paiement de {{ total_price }} € a été capturé et vos stands ({{ spot_labels | join(", ") }}) sont officiellement réservés.
+
+Rendez-vous le {{ event_date }} à {{ event_location }}.
+{% if setup_hours %}Horaires d'installation : {{ setup_hours }}{% endif %}
+
+Consulter votre réservation :
+{{ confirmation_url }}
+{% else %}
+L'organisateur n'a pas retenu votre demande d'inscription pour l'événement "{{ event_title }}".
+Votre pré-autorisation par carte bancaire a été annulée sans aucun débit bancaire.
+
+{% if reason %}Motif indiqué par l'organisateur : {{ reason }}{% endif %}
+{% endif %}
+
+---
+GVG (Gestion de Vide-Greniers)
+Contact organisateur : {{ organizer_email }}
+

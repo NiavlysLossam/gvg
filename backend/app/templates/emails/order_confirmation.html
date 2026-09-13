@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+
+{% block title %}Confirmation de commande - {{ order_number }}{% endblock %}
+
+{% block content %}
+  <div style="text-align: center; margin-bottom: 24px;">
+    {% if status == 'pending_approval' %}
+      <span class="badge badge-amber">⏳ En attente de validation</span>
+      <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Demande d'inscription enregistrée</h2>
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">Votre pré-autorisation bancaire est confirmée. Vos stands sont pré-réservés sous réserve de validation par l'organisateur.</p>
+    {% else %}
+      <span class="badge badge-success">✓ Inscription Confirmée</span>
+      <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Merci pour votre inscription !</h2>
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, votre réservation est bien confirmée.</p>
+    {% endif %}
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">Numéro de commande</span>
+      <span class="info-value">{{ order_number }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Stand(s) attribué(s)</span>
+      <span class="info-value">
+        {% for label in spot_labels %}
+          <span class="stand-pill">{{ label }}</span>
+        {% else %}
+          Non spécifié
+        {% endfor %}
+      </span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Métrage linéaire total</span>
+      <span class="info-value">{{ total_linear_meters | default("0.0") }} m</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Montant total</span>
+      <span class="info-value" style="color: #059669; font-size: 15px;">{{ total_price | default("0.00") }} €</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Mode de règlement</span>
+      <span class="info-value">
+        {% if payment_method == 'stripe' %}
+          Carte bancaire en ligne
+        {% elif payment_method == 'cash' %}
+          Hors-ligne (Espèces)
+        {% elif payment_method == 'check' %}
+          Hors-ligne (Chèque)
+        {% else %}
+          Hors-ligne
+        {% endif %}
+      </span>
+    </div>
+    {% if offline_reference %}
+      <div class="info-row">
+        <span class="info-label">Référence règlement</span>
+        <span class="info-value">{{ offline_reference }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+    <h3 style="margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #065f46;">📍 Informations pratiques pour le Jour J</h3>
+    <p style="margin: 4px 0; font-size: 13px; color: #047857;"><strong>Lieu :</strong> {{ event_location | default("Voir le plan") }}</p>
+    {% if setup_hours %}
+      <p style="margin: 4px 0; font-size: 13px; color: #047857;"><strong>Installation exposants :</strong> {{ setup_hours }}</p>
+    {% endif %}
+    {% if public_hours %}
+      <p style="margin: 4px 0; font-size: 13px; color: #047857;"><strong>Ouverture au public :</strong> {{ public_hours }}</p>
+    {% endif %}
+    <p style="margin: 8px 0 0; font-size: 12px; color: #065f46;">
+      ⚠️ <em>Pensez à vous munir de votre <strong>pièce d'identité originale</strong> et de votre <strong>attestation sur l'honneur signée</strong> lors de votre accueil par les placiers.</em>
+    </p>
+  </div>
+
+  <div style="text-align: center; margin-top: 28px;">
+    {% if confirmation_url %}
+      <a href="{{ confirmation_url }}" class="btn btn-primary" style="display: block; margin-bottom: 12px;">
+        Consulter ma réservation en ligne
+      </a>
+    {% endif %}
+    {% if cancellation_url %}
+      <div style="margin-top: 14px; font-size: 12px;">
+        Un empêchement ? Vous pouvez <a href="{{ cancellation_url }}" style="color: #6b7280; text-decoration: underline;">demander une annulation de votre stand</a>.
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}
+

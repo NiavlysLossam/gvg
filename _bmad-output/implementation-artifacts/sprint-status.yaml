@@ -31,8 +31,8 @@ development_status:
   3-4-arbitrage-remboursements-remboursement-groupe: done
   epic-3-retrospective: done
 
-  epic-4: backlog
-  4-1-emails-transactionnels-automatises: backlog
+  epic-4: in-progress
+  4-1-emails-transactionnels-automatises: done
   4-2-rappels-automatiques-programmes-j7-j2: backlog
   4-3-envoi-manuel-emails-groupes-variables-dynamiques: backlog
   epic-4-retrospective: optional

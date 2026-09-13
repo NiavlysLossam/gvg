@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block title %}Arbitrage de votre demande d'annulation - {{ order_number }}{% endblock %}
+
+{% block content %}
+  <div style="text-align: center; margin-bottom: 24px;">
+    {% if accepted %}
+      <span class="badge badge-success">✓ Annulation & Remboursement Validés</span>
+      <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Votre demande d'annulation a été acceptée</h2>
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, l'organisateur a validé le remboursement de votre commande.</p>
+    {% else %}
+      <span class="badge badge-amber">⚠️ Demande d'Annulation Non Retenue</span>
+      <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Demande d'annulation refusée</h2>
+      <p style="color: #6b7280; font-size: 14px; margin: 0;">Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, votre réservation reste active et confirmée.</p>
+    {% endif %}
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">Numéro de commande</span>
+      <span class="info-value">{{ order_number }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Événement</span>
+      <span class="info-value">{{ event_title }}</span>
+    </div>
+    {% if accepted %}
+      <div class="info-row">
+        <span class="info-label">Montant remboursé</span>
+        <span class="info-value" style="color: #059669; font-weight: 800;">{{ refund_amount | default(total_price) }} €</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Modalité</span>
+        <span class="info-value">
+          {% if payment_method == 'stripe' %}
+            Recrédit automatique sur votre carte bancaire (délai 5 à 10 jours ouvrés)
+          {% else %}
+            Modalités hors-ligne auprès de l'organisateur (chèque restitué ou espèces)
+          {% endif %}
+        </span>
+      </div>
+    {% else %}
+      <div class="info-row">
+        <span class="info-label">Statut de la commande</span>
+        <span class="info-value" style="color: #059669;">Confirmée</span>
+      </div>
+      <div class="info-row">
+        <span class="info-label">Stand(s) maintenus</span>
+        <span class="info-value">
+          {% for label in spot_labels %}
+            <span class="stand-pill">{{ label }}</span>
+          {% else %}
+            Non spécifié
+          {% endfor %}
+        </span>
+      </div>
+    {% endif %}
+    {% if reason %}
+      <div class="info-row">
+        <span class="info-label">Motif / Note de l'organisateur</span>
+        <span class="info-value" style="color: #374151;">{{ reason }}</span>
+      </div>
+    {% endif %}
+  </div>
+
+  {% if not accepted %}
+    <p style="font-size: 13px; color: #4b5563; line-height: 1.6; margin-top: 16px;">
+      Conformément au règlement de l'événement et au motif précisé ci-dessus, votre réservation reste effective pour le {{ event_date }}.
+    </p>
+    <div style="text-align: center; margin-top: 24px;">
+      {% if confirmation_url %}
+        <a href="{{ confirmation_url }}" class="btn btn-primary">Voir ma réservation</a>
+      {% endif %}
+    </div>
+  {% else %}
+    <p style="font-size: 13px; color: #6b7280; text-align: center; margin-top: 16px;">
+      Vos stands ont été remis en disponibilité sur le plan public. Merci de votre confiance.
+    </p>
+  {% endif %}
+{% endblock %}
+
