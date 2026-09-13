@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-13-2026 10:00
+last_updated: 09-13-2026 16:04
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -29,7 +29,7 @@ development_status:
   3-2-workflow-moderation-optionnelle-inscription: done
   3-3-portail-demande-annulation-exposant: done
   3-4-arbitrage-remboursements-remboursement-groupe: done
-  epic-3-retrospective: optional
+  epic-3-retrospective: done
 
   epic-4: backlog
   4-1-emails-transactionnels-automatises: backlog
@@ -72,3 +72,17 @@ action_items:
     owner: "Dev Backend"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-13.md"
+  - id: "epic-3-retro-item-5-extraire-les-modales-d-arbitrage-et-d-an"
+    epic: 3
+    action: "Extraire les modales d arbitrage et d annulation de RegistrationsPage.tsx
+      en composants autonomes"
+    owner: "Dev Frontend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-13.md"
+  - id: "epic-3-retro-item-6-connecter-les-actions-d-arbitrage-au-sys"
+    epic: 3
+    action: "Connecter les actions d arbitrage au systeme d envoi d emails transactionnels
+      de l Epic 4"
+    owner: "Dev Backend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-3-retro-2026-09-13.md"
