@@ -110,3 +110,30 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
     with TestClient(app) as test_client:
         yield test_client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture(scope="function", autouse=True)
+def bind_services_session(db_session: Session, monkeypatch: pytest.MonkeyPatch):
+    """
+    Ensure email_service and broadcast_service share the test database transaction,
+    preventing SQLite in-memory threading table isolation errors.
+    """
+    try:
+        from app.services import email_service
+        monkeypatch.setattr(
+            email_service,
+            "get_session",
+            lambda db=None: (db or db_session, False),
+        )
+    except Exception:
+        pass
+    try:
+        from app.services import broadcast_service
+        monkeypatch.setattr(
+            broadcast_service,
+            "get_session",
+            lambda db=None: (db or db_session, False),
+        )
+    except Exception:
+        pass
+

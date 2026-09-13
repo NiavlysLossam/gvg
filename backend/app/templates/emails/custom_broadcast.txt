@@ -1,0 +1,21 @@
+{{ event_title }} - Message de l'organisateur
+==================================================
+
+{{ message_body }}
+
+--------------------------------------------------
+RÉCAPITULATIF DE VOTRE RÉSERVATION :
+--------------------------------------------------
+Numéro de commande : {{ order_number | default("Non spécifié") }}
+Stand(s) attribué(s) : {{ spot_labels_text | default("Non spécifié") }}
+{% if total_linear_meters %}Métrage linéaire : {{ total_linear_meters }} m
+{% endif %}{% if event_date %}Date de l'événement : {{ event_date }}
+{% endif %}{% if setup_hours %}Horaires d'installation : {{ setup_hours }}
+{% endif %}{% if confirmation_url %}
+Consulter ma réservation et attestation :
+{{ confirmation_url }}
+{% endif %}
+--------------------------------------------------
+Cet e-mail vous a été adressé par l'organisateur de {{ event_title }}.
+{% if organizer_email %}Une question ? Contactez : {{ organizer_email }}{% endif %}
+

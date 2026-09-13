@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   RotateCcw,
   AlertTriangle,
+  Mail,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
 import {
@@ -43,6 +44,7 @@ import {
 } from '../lib/api';
 import { ManualBookingModal } from '../components/ManualBookingModal';
 import { RemindersCard } from '../components/RemindersCard';
+import { BroadcastModal } from '../components/BroadcastModal';
 
 interface RegistrationsPageProps {
   event: EventModel;
@@ -98,6 +100,10 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   const [bulkCancelLoading, setBulkCancelLoading] = useState<boolean>(false);
   const [bulkCancelReport, setBulkCancelReport] = useState<BulkEventCancelResponse | null>(null);
   const [currentEventStatus, setCurrentEventStatus] = useState<string>(event.status || 'published');
+
+  // Broadcast Modal & Row Selection
+  const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState<boolean>(false);
+  const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     setIsModerated(event.manual_approval_required ?? false);
@@ -176,6 +182,44 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
     });
     return list;
   }, [orders, sortField, sortOrder]);
+
+  // Selection helpers for broadcast
+  const visibleConfirmedOrders = useMemo(() => {
+    return sortedOrders.filter((o) => o.status === 'confirmed');
+  }, [sortedOrders]);
+
+  const isAllConfirmedSelected = useMemo(() => {
+    if (visibleConfirmedOrders.length === 0) return false;
+    return visibleConfirmedOrders.every((o) => selectedOrderIds.has(o.id));
+  }, [visibleConfirmedOrders, selectedOrderIds]);
+
+  const handleToggleSelectAll = () => {
+    if (isAllConfirmedSelected) {
+      setSelectedOrderIds((prev) => {
+        const next = new Set(prev);
+        visibleConfirmedOrders.forEach((o) => next.delete(o.id));
+        return next;
+      });
+    } else {
+      setSelectedOrderIds((prev) => {
+        const next = new Set(prev);
+        visibleConfirmedOrders.forEach((o) => next.add(o.id));
+        return next;
+      });
+    }
+  };
+
+  const handleToggleSelectOrder = (orderId: string) => {
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) {
+        next.delete(orderId);
+      } else {
+        next.add(orderId);
+      }
+      return next;
+    });
+  };
 
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) {
@@ -492,6 +536,21 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               <span>Événement Annulé</span>
             </span>
           )}
+
+          <button
+            onClick={() => setIsBroadcastModalOpen(true)}
+            disabled={currentEventStatus === 'cancelled'}
+            className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition flex items-center gap-1.5 shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
+            title="Diffuser un e-mail avec variables dynamiques aux exposants"
+          >
+            <Mail className="w-4 h-4 text-emerald-600" />
+            <span>Diffuser un e-mail</span>
+            {selectedOrderIds.size > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white">
+                {selectedOrderIds.size}
+              </span>
+            )}
+          </button>
 
           <button
             onClick={() => setIsModalOpen(true)}
@@ -852,9 +911,45 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
           </div>
         ) : (
           <div className="overflow-x-auto">
+            {selectedOrderIds.size > 0 && (
+              <div className="bg-emerald-50 border-b border-emerald-200 px-4 py-2.5 flex items-center justify-between text-xs text-emerald-900 animate-fade-in">
+                <div className="flex items-center gap-2">
+                  <span className="font-bold">{selectedOrderIds.size}</span>
+                  <span>
+                    inscription{selectedOrderIds.size > 1 ? 's' : ''} sélectionnée{selectedOrderIds.size > 1 ? 's' : ''}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedOrderIds(new Set())}
+                    className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 transition"
+                  >
+                    Désélectionner tout
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBroadcastModalOpen(true)}
+                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Mail className="w-3.5 h-3.5" />
+                    <span>Diffuser à la sélection ({selectedOrderIds.size})</span>
+                  </button>
+                </div>
+              </div>
+            )}
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-gray-50/80 border-b border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[11px]">
+                  <th className="py-3.5 px-3 w-10 text-center select-none">
+                    <input
+                      type="checkbox"
+                      checked={isAllConfirmedSelected}
+                      onChange={handleToggleSelectAll}
+                      className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
+                      title="Sélectionner / Désélectionner toutes les commandes confirmées affichées"
+                    />
+                  </th>
                   <th
                     onClick={() => handleSort('date')}
                     className="py-3.5 px-4 cursor-pointer select-none hover:text-gray-900 transition"
@@ -908,6 +1003,21 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               <tbody className="divide-y divide-gray-100 text-gray-700">
                 {sortedOrders.map((ord) => (
                   <tr key={ord.id} className="hover:bg-gray-50/60 transition">
+                    {/* Selection checkbox */}
+                    <td className="py-3.5 px-3 text-center">
+                      {ord.status === 'confirmed' ? (
+                        <input
+                          type="checkbox"
+                          checked={selectedOrderIds.has(ord.id)}
+                          onChange={() => handleToggleSelectOrder(ord.id)}
+                          className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
+                          title={`Sélectionner la commande ${ord.order_number}`}
+                        />
+                      ) : (
+                        <span className="inline-block w-4 h-4" />
+                      )}
+                    </td>
+
                     {/* Order & Date */}
                     <td className="py-3.5 px-4 whitespace-nowrap">
                       <div className="font-bold text-gray-900">{ord.order_number}</div>
@@ -1673,6 +1783,19 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
         event={event}
         onClose={() => setIsModalOpen(false)}
         onSuccess={handleManualBookingSuccess}
+      />
+
+      {/* Broadcast Modal */}
+      <BroadcastModal
+        isOpen={isBroadcastModalOpen}
+        event={event}
+        totalConfirmedCount={stats?.confirmed_orders_count ?? 0}
+        selectedOrders={orders.filter((o) => selectedOrderIds.has(o.id))}
+        onClose={() => setIsBroadcastModalOpen(false)}
+        onSuccess={(report) => {
+          setToastMessage(report.message || "Diffusion d'e-mails initiée avec succès !");
+          setSelectedOrderIds(new Set());
+        }}
       />
     </div>
   );

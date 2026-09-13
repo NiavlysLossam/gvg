@@ -778,3 +778,55 @@ export async function triggerEventReminders(
   return response.json();
 }
 
+export async function previewBroadcastEmail(
+  eventIdOrSlug: string,
+  payload: import('../types/broadcast').BroadcastPreviewRequest
+): Promise<import('../types/broadcast').BroadcastPreviewResponse> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/broadcast/preview`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "Erreur lors de la prévisualisation de l'e-mail";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function sendBroadcastEmail(
+  eventIdOrSlug: string,
+  payload: import('../types/broadcast').BroadcastSendRequest
+): Promise<import('../types/broadcast').BroadcastSendResponse> {
+  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/broadcast/send`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    let detail = "Erreur lors de l'envoi de la diffusion";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
