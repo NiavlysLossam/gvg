@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-13-2026 09:31
+last_updated: 09-13-2026 10:00
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -26,7 +26,7 @@ development_status:
 
   epic-3: in-progress
   3-1-tableau-de-bord-admin-saisie-manuelle-hors-ligne: done
-  3-2-workflow-moderation-optionnelle-inscription: backlog
+  3-2-workflow-moderation-optionnelle-inscription: done
   3-3-portail-demande-annulation-exposant: backlog
   3-4-arbitrage-remboursements-remboursement-groupe: backlog
   epic-3-retrospective: optional

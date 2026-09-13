@@ -11,6 +11,7 @@ import {
   Share2,
   HelpCircle,
   ShoppingBag,
+  ShieldCheck,
 } from 'lucide-react';
 import { OrderOut } from '../types/order';
 import { PublicEventResponse } from '../types/public';
@@ -122,7 +123,13 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
 
   // Soft Polling fallback if webhook is slightly delayed during 3DS redirection
   useEffect(() => {
-    if (!order || order.status === 'confirmed' || !accessToken) {
+    if (
+      !order ||
+      order.status === 'confirmed' ||
+      order.status === 'pending_approval' ||
+      order.status === 'rejected' ||
+      !accessToken
+    ) {
       setPolling(false);
       return;
     }
@@ -135,7 +142,11 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
       attempts += 1;
       try {
         const refreshed = await fetchPublicOrder(slug, orderId, accessToken);
-        if (refreshed.status === 'confirmed') {
+        if (
+          refreshed.status === 'confirmed' ||
+          refreshed.status === 'pending_approval' ||
+          refreshed.status === 'rejected'
+        ) {
           setOrder(refreshed);
           setPolling(false);
           clearInterval(pollInterval);
@@ -247,6 +258,8 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
   }
 
   const isConfirmed = order.status === 'confirmed';
+  const isPendingApproval = order.status === 'pending_approval';
+  const isRejected = order.status === 'rejected';
 
   return (
     <div className="min-h-screen bg-[#FBFBFA] flex flex-col">
@@ -272,7 +285,13 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
           </div>
           <div className="text-right">
 
-            <span className="font-mono text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 px-3 py-1 rounded-full">
+            <span className={`font-mono text-xs font-bold px-3 py-1 rounded-full border ${
+              isRejected
+                ? 'text-red-800 bg-red-50 border-red-200'
+                : isPendingApproval
+                ? 'text-amber-800 bg-amber-50 border-amber-200'
+                : 'text-emerald-800 bg-emerald-50 border-emerald-200'
+            }`}>
               {order.order_number}
             </span>
           </div>
@@ -295,7 +314,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
         )}
 
         {/* Webhook in-flight Soft Polling Banner */}
-        {polling && !isConfirmed && (
+        {polling && !isConfirmed && !isPendingApproval && !isRejected && (
           <div className="p-4 bg-amber-50 border border-amber-200 rounded-2xl text-amber-900 text-sm flex items-center gap-3 animate-pulse">
             <Loader2 className="w-5 h-5 text-amber-700 animate-spin flex-shrink-0" />
             <div>
@@ -307,7 +326,7 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
           </div>
         )}
 
-        {/* Celebration / Success Hero Banner (strictly gated on isConfirmed) */}
+        {/* Celebration / Success Hero Banner / Pending Approval Banner / Rejected Banner */}
         {isConfirmed ? (
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-gray-200 shadow-sm text-center space-y-4 animate-fade-in">
             <div className="w-20 h-20 bg-emerald-100 text-emerald-700 rounded-full flex items-center justify-center mx-auto shadow-sm">
@@ -340,6 +359,56 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
               </button>
             </div>
           </div>
+        ) : isPendingApproval ? (
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-200 shadow-sm text-center space-y-4 animate-fade-in">
+            <div className="w-20 h-20 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto shadow-sm">
+              <Clock className="w-12 h-12 text-amber-700" />
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight">
+              Demande d'inscription en attente de validation
+            </h1>
+
+            <div className="p-4 bg-amber-50/80 border border-amber-200 rounded-2xl max-w-xl mx-auto text-left text-xs sm:text-sm text-amber-900 space-y-2">
+              <div className="flex items-center gap-2 font-bold text-amber-950">
+                <ShieldCheck className="w-4 h-4 text-amber-700" />
+                <span>Pré-autorisation enregistrée &mdash; Aucun débit immédiat</span>
+              </div>
+              <p className="leading-relaxed text-amber-800">
+                L'organisateur de cet événement valide manuellement les inscriptions. Vos stands sont d'ores et déjà <strong>protégés et réservés</strong> pour vous. Votre carte bancaire ne sera débitée qu'une fois la demande acceptée par l'organisateur.
+              </p>
+            </div>
+
+            <p className="text-xs sm:text-sm text-gray-500 max-w-md mx-auto leading-relaxed">
+              Commande n° <strong className="text-gray-900 font-mono">{order.order_number}</strong>. Conservez votre lien pour suivre l'état de validation de votre réservation.
+            </p>
+
+            <div className="pt-2 flex flex-wrap justify-center gap-3">
+              <button
+                onClick={handleCopyLink}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl border border-gray-200 bg-white hover:bg-gray-50 text-gray-700 text-xs font-semibold shadow-xs transition"
+              >
+                <Share2 className="w-3.5 h-3.5 text-gray-500" />
+                <span>{copiedLink ? 'Lien copié !' : 'Partager ou conserver mon lien'}</span>
+              </button>
+            </div>
+          </div>
+        ) : isRejected ? (
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-red-200 shadow-sm text-center space-y-4 animate-fade-in">
+            <div className="w-20 h-20 bg-red-100 text-red-700 rounded-full flex items-center justify-center mx-auto shadow-sm">
+              <AlertCircle className="w-12 h-12 text-red-700" />
+            </div>
+
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-gray-900 leading-tight">
+              Réservation non retenue
+            </h1>
+
+            <div className="p-4 bg-red-50 border border-red-200 rounded-2xl max-w-xl mx-auto text-left text-xs sm:text-sm text-red-900 space-y-2">
+              <p className="leading-relaxed">
+                L'organisateur n'a pas pu valider votre demande d'inscription pour la commande <strong className="font-mono">{order.order_number}</strong>. L'autorisation bancaire temporaire a été immédiatement annulée : <strong>aucun débit n'a été effectué sur votre compte bancaire</strong> et les stands ont été libérés.
+              </p>
+            </div>
+          </div>
         ) : (
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-amber-200 shadow-sm text-center space-y-4 animate-fade-in">
             <div className="w-16 h-16 bg-amber-100 text-amber-700 rounded-full flex items-center justify-center mx-auto shadow-sm">
@@ -361,8 +430,22 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
               <ShoppingBag className="w-4 h-4 text-emerald-700" />
               <span>Vos emplacements réservés ({order.items.length})</span>
             </h2>
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-50 text-emerald-800 border border-emerald-200">
-              {isConfirmed ? 'Confirmé & Payé' : 'En attente de confirmation'}
+            <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${
+              isConfirmed
+                ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                : isPendingApproval
+                ? 'bg-amber-50 text-amber-800 border-amber-200'
+                : isRejected
+                ? 'bg-red-50 text-red-700 border-red-200'
+                : 'bg-gray-100 text-gray-800 border-gray-200'
+            }`}>
+              {isConfirmed
+                ? 'Confirmé & Payé'
+                : isPendingApproval
+                ? 'En attente de validation'
+                : isRejected
+                ? 'Refusé (Sans débit)'
+                : 'En attente de confirmation'}
             </span>
           </div>
 
@@ -387,8 +470,18 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
           </div>
 
           <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
-            <span className="text-sm font-bold text-gray-900">{isConfirmed ? 'Total réglé' : 'Total à régler'}</span>
-            <span className="text-xl font-extrabold text-emerald-800 font-mono">
+            <span className="text-sm font-bold text-gray-900">
+              {isConfirmed
+                ? 'Total réglé'
+                : isPendingApproval
+                ? 'Total pré-autorisé (non débité)'
+                : isRejected
+                ? 'Montant annulé (aucun débit)'
+                : 'Total à régler'}
+            </span>
+            <span className={`text-xl font-extrabold font-mono ${
+              isRejected ? 'text-red-700 line-through' : 'text-emerald-800'
+            }`}>
               {formatPrice(order.total_price)}
             </span>
           </div>

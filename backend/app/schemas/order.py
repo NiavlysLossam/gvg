@@ -272,6 +272,15 @@ class EventDashboardStats(BaseModel):
     confirmed_orders_count: int
     pending_orders_count: int
     offline_orders_count: int
+    pending_approval_orders_count: int = 0
+
+
+class OrderApprovalAction(BaseModel):
+    reason: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Motif optionnel du refus ou note d'approbation",
+    )
 
 
 class AdminOrderOut(BaseModel):

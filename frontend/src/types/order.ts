@@ -36,7 +36,7 @@ export interface OrderOut {
   honor_declaration_accepted_at: string;
   total_price_cents: number;
   total_price: number;
-  status: 'pending' | 'confirmed' | 'refunded' | 'cancelled' | string;
+  status: 'pending' | 'pending_approval' | 'confirmed' | 'rejected' | 'refunded' | 'cancelled' | string;
   payment_method: string;
   offline_payment_reference?: string | null;
   admin_notes?: string | null;
@@ -71,7 +71,7 @@ export interface AdminOrder {
   honor_declaration_accepted_at?: string | null;
   total_price_cents: number;
   total_price: number;
-  status: 'pending' | 'confirmed' | 'refunded' | 'cancelled' | string;
+  status: 'pending' | 'pending_approval' | 'confirmed' | 'rejected' | 'refunded' | 'cancelled' | string;
   payment_method: 'stripe' | 'check' | 'cash' | 'other' | string;
   is_offline: boolean;
   offline_payment_reference?: string | null;
@@ -106,6 +106,11 @@ export interface DashboardStats {
   confirmed_orders_count: number;
   pending_orders_count: number;
   offline_orders_count: number;
+  pending_approval_orders_count?: number;
+}
+
+export interface OrderApprovalAction {
+  reason?: string;
 }
 
 export interface AdminOrderListResponse {

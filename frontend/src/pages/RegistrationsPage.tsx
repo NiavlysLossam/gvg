@@ -16,10 +16,21 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  Clock,
+  Check,
+  X,
+  XCircle,
+  ShieldCheck,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
 import { AdminOrder, DashboardStats } from '../types/order';
-import { fetchEventOrders, fetchEventDashboardStats } from '../lib/api';
+import {
+  fetchEventOrders,
+  fetchEventDashboardStats,
+  updateEvent,
+  approveOrder,
+  rejectOrder,
+} from '../lib/api';
 import { ManualBookingModal } from '../components/ManualBookingModal';
 
 interface RegistrationsPageProps {
@@ -41,18 +52,31 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Moderation state
+  const [isModerated, setIsModerated] = useState<boolean>(event.manual_approval_required ?? false);
+  const [updatingModeration, setUpdatingModeration] = useState<boolean>(false);
+
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'confirmed' | 'offline' | 'pending'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending_approval' | 'confirmed' | 'offline' | 'pending' | 'rejected'>('all');
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  // Manual booking modal
+  // Actions & Modals
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  const [approveModalOrder, setApproveModalOrder] = useState<AdminOrder | null>(null);
+  const [rejectModalOrder, setRejectModalOrder] = useState<AdminOrder | null>(null);
+  const [rejectReason, setRejectReason] = useState<string>('');
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setIsModerated(event.manual_approval_required ?? false);
+  }, [event.manual_approval_required]);
 
   // Debounce search input by 300ms
   useEffect(() => {
@@ -140,6 +164,63 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
     setToastMessage(`Réservation manuelle n° ${orderNumber} enregistrée avec succès !`);
     setTimeout(() => setToastMessage(null), 6000);
     loadData();
+  };
+
+  const handleToggleModeration = async () => {
+    const nextValue = !isModerated;
+    setUpdatingModeration(true);
+    try {
+      await updateEvent(event.id, { manual_approval_required: nextValue });
+      event.manual_approval_required = nextValue;
+      setIsModerated(nextValue);
+      setToastMessage(
+        nextValue
+          ? 'Modération manuelle activée : les futures réservations par carte feront l’objet d’une pré-autorisation.'
+          : 'Modération manuelle désactivée : les futures réservations par carte seront immédiatement encaissées.'
+      );
+      setTimeout(() => setToastMessage(null), 6000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Erreur lors de la mise à jour de la modération');
+    } finally {
+      setUpdatingModeration(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    if (!approveModalOrder) return;
+    const order = approveModalOrder;
+    setActionLoadingId(order.id);
+    setModalError(null);
+    try {
+      await approveOrder(event.id, order.id);
+      setToastMessage(`Inscription n° ${order.order_number} validée avec succès ! Fonds capturés.`);
+      setTimeout(() => setToastMessage(null), 6000);
+      setApproveModalOrder(null);
+      await loadData();
+    } catch (err: unknown) {
+      setModalError(err instanceof Error ? err.message : 'Erreur lors de la validation de la commande');
+    } finally {
+      setActionLoadingId(null);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!rejectModalOrder) return;
+    const order = rejectModalOrder;
+    setActionLoadingId(order.id);
+    setModalError(null);
+    try {
+      await rejectOrder(event.id, order.id, { reason: rejectReason.trim() || undefined });
+      setToastMessage(`Inscription n° ${order.order_number} refusée. Pré-autorisation annulée et stands libérés.`);
+      setTimeout(() => setToastMessage(null), 6000);
+      setRejectModalOrder(null);
+      setRejectReason('');
+      await loadData();
+    } catch (err: unknown) {
+      setModalError(err instanceof Error ? err.message : 'Erreur lors du refus de la commande');
+    } finally {
+      setActionLoadingId(null);
+    }
   };
 
   // Payment badge renderer
@@ -237,6 +318,37 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
+          {/* Moderation switch toggle */}
+          <div className="flex items-center gap-2.5 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-xl">
+            <ShieldCheck className={`w-4 h-4 ${isModerated ? 'text-emerald-600' : 'text-gray-400'}`} />
+            <div className="flex flex-col text-left">
+              <span className="text-[11px] font-bold text-gray-800 leading-tight">Modération</span>
+              <span className={`text-[10px] leading-tight font-medium ${isModerated ? 'text-emerald-600' : 'text-gray-400'}`}>
+                {isModerated ? 'Active' : 'Désactivée'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleModeration}
+              disabled={updatingModeration}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+                isModerated ? 'bg-emerald-600' : 'bg-gray-300'
+              } ${updatingModeration ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={
+                isModerated
+                  ? 'Désactiver la modération (les paiements CB seront encaissés automatiquement)'
+                  : 'Activer la modération (les paiements CB feront l’objet d’une pré-autorisation avant validation)'
+              }
+            >
+              <span
+                aria-hidden="true"
+                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                  isModerated ? 'translate-x-4' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+
           {onOpenEditor && (
             <button
               onClick={onOpenEditor}
@@ -434,6 +546,26 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             Tous ({stats?.total_orders_count ?? 0})
           </button>
           <button
+            onClick={() => setStatusFilter('pending_approval')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
+              statusFilter === 'pending_approval'
+                ? 'bg-white text-amber-900 shadow-xs'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>À valider</span>
+            {(stats?.pending_approval_orders_count ?? 0) > 0 ? (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                {stats?.pending_approval_orders_count}
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-200 text-gray-700">
+                0
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setStatusFilter('confirmed')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
               statusFilter === 'confirmed'
@@ -468,6 +600,17 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">
               {stats?.pending_orders_count ?? 0}
             </span>
+          </button>
+          <button
+            onClick={() => setStatusFilter('rejected')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
+              statusFilter === 'rejected'
+                ? 'bg-white text-red-900 shadow-xs'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <XCircle className="w-3.5 h-3.5 text-red-500" />
+            <span>Refusés</span>
           </button>
         </div>
 
@@ -568,6 +711,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                     </div>
                   </th>
                   <th className="py-3.5 px-4">Notes / Réf</th>
+                  <th className="py-3.5 px-4 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-gray-700">
@@ -627,6 +771,22 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>Confirmé</span>
                         </span>
+                      ) : ord.status === 'pending_approval' ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300"
+                          title="En attente de validation par l'organisateur (pré-autorisation enregistrée)"
+                        >
+                          <Clock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>À valider</span>
+                        </span>
+                      ) : ord.status === 'rejected' ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200"
+                          title="Réservation refusée et pré-autorisation annulée"
+                        >
+                          <XCircle className="w-3.5 h-3.5 text-red-500" />
+                          <span>Refusé</span>
+                        </span>
                       ) : ord.status === 'pending' ? (
                         <span
                           className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200"
@@ -658,6 +818,47 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                         <span className="text-gray-300">&mdash;</span>
                       )}
                     </td>
+
+                    {/* Actions */}
+                    <td className="py-3.5 px-4 whitespace-nowrap text-right">
+                      {ord.status === 'pending_approval' ? (
+                        <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApproveModalOrder(ord);
+                              setModalError(null);
+                            }}
+                            disabled={actionLoadingId === ord.id}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs transition disabled:opacity-50"
+                            title="Valider l'inscription et capturer la pré-autorisation CB"
+                          >
+                            {actionLoadingId === ord.id ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Check className="w-3.5 h-3.5" />
+                            )}
+                            <span>Accepter</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setRejectModalOrder(ord);
+                              setRejectReason('');
+                              setModalError(null);
+                            }}
+                            disabled={actionLoadingId === ord.id}
+                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold flex items-center gap-1 transition disabled:opacity-50"
+                            title="Refuser l'inscription, annuler l'autorisation et libérer les stands"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                            <span>Refuser</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300">&mdash;</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -665,6 +866,164 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
           </div>
         )}
       </div>
+
+      {/* Approve Confirmation Modal */}
+      {approveModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 text-emerald-600">
+              <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
+                <Check className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Valider l'inscription</h3>
+                <p className="text-xs text-gray-500">Commande {approveModalOrder.order_number}</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-3.5 rounded-xl text-xs space-y-1.5 border border-gray-100">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Exposant :</span>
+                <span className="font-bold text-gray-900">{approveModalOrder.full_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Stand(s) :</span>
+                <span className="font-bold text-gray-900">
+                  {(approveModalOrder.spot_labels || []).join(', ') || '—'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Montant :</span>
+                <span className="font-black text-gray-900">
+                  {approveModalOrder.total_price.toFixed(2)} €
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              En confirmant, vous déclenchez la <strong>capture immédiate</strong> de la pré-autorisation bancaire Stripe. L'inscription sera définitivement confirmée et les fonds transférés.
+            </p>
+
+            {modalError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setApproveModalOrder(null);
+                  setModalError(null);
+                }}
+                disabled={actionLoadingId === approveModalOrder.id}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={actionLoadingId === approveModalOrder.id}
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              >
+                {actionLoadingId === approveModalOrder.id && (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                )}
+                <span>Confirmer et capturer</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Confirmation Modal */}
+      {rejectModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center gap-3 text-red-600">
+              <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
+                <XCircle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Refuser l'inscription</h3>
+                <p className="text-xs text-gray-500">Commande {rejectModalOrder.order_number}</p>
+              </div>
+            </div>
+
+            <div className="bg-gray-50 p-3.5 rounded-xl text-xs space-y-1.5 border border-gray-100">
+              <div className="flex justify-between">
+                <span className="text-gray-500">Exposant :</span>
+                <span className="font-bold text-gray-900">{rejectModalOrder.full_name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Stand(s) :</span>
+                <span className="font-bold text-gray-900">
+                  {(rejectModalOrder.spot_labels || []).join(', ') || '—'}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500">Montant à annuler :</span>
+                <span className="font-black text-gray-900">
+                  {rejectModalOrder.total_price.toFixed(2)} €
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-600">
+              L'autorisation bancaire sera <strong>annulée sans aucun débit</strong> sur le compte de l'exposant. Les stands réservés redeviendront <strong>immédiatement disponibles</strong> sur le plan.
+            </p>
+
+            <div className="space-y-1.5">
+              <label className="block text-xs font-semibold text-gray-700">
+                Motif du refus (optionnel, consigné en note interne)
+              </label>
+              <textarea
+                value={rejectReason}
+                onChange={(e) => setRejectReason(e.target.value)}
+                placeholder="Ex. Dossier non conforme, pièce justificative manquante..."
+                rows={3}
+                className="w-full p-2.5 text-xs rounded-xl border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+              />
+            </div>
+
+            {modalError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-800 text-xs rounded-xl flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 flex-shrink-0 mt-0.5" />
+                <span>{modalError}</span>
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRejectModalOrder(null);
+                  setRejectReason('');
+                  setModalError(null);
+                }}
+                disabled={actionLoadingId === rejectModalOrder.id}
+                className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleReject}
+                disabled={actionLoadingId === rejectModalOrder.id}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+              >
+                {actionLoadingId === rejectModalOrder.id && (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                )}
+                <span>Confirmer le refus</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manual Booking Modal */}
       <ManualBookingModal

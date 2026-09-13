@@ -549,3 +549,63 @@ export async function createManualBooking(
 
   return response.json();
 }
+
+export async function approveOrder(
+  eventIdOrSlug: string,
+  orderId: string,
+  payload?: import('../types/order').OrderApprovalAction
+): Promise<import('../types/order').AdminOrder> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/approve`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la validation de la commande';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function rejectOrder(
+  eventIdOrSlug: string,
+  orderId: string,
+  payload?: import('../types/order').OrderApprovalAction
+): Promise<import('../types/order').AdminOrder> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/reject`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload || {}),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors du refus de la commande';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}

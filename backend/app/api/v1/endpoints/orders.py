@@ -14,7 +14,9 @@ from app.schemas.order import (
     EventDashboardStats,
     AdminOrderOut,
     AdminOrderListResponse,
+    OrderApprovalAction,
 )
+from app.services import stripe_service
 
 router = APIRouter()
 
@@ -137,6 +139,12 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         .scalar()
         or 0
     )
+    pending_approval_orders_count = (
+        db.query(func.count(Order.id))
+        .filter(Order.event_id == event.id, Order.status == "pending_approval")
+        .scalar()
+        or 0
+    )
     offline_orders_count = (
         db.query(func.count(Order.id))
         .filter(
@@ -170,6 +178,7 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         confirmed_orders_count=confirmed_orders_count,
         pending_orders_count=pending_orders_count,
         offline_orders_count=offline_orders_count,
+        pending_approval_orders_count=pending_approval_orders_count,
     )
 
 
@@ -223,7 +232,9 @@ def list_event_orders(
         st = status_filter.lower().strip()
         if st == "offline":
             query = query.filter(Order.payment_method.in_(["check", "cash", "other"]))
-        elif st in ("confirmed", "pending", "cancelled"):
+        elif st in ("pending_approval", "to_validate"):
+            query = query.filter(Order.status == "pending_approval")
+        elif st in ("confirmed", "pending", "rejected", "cancelled"):
             query = query.filter(Order.status == st)
 
     # Search filter
@@ -367,3 +378,116 @@ def create_manual_booking(
     )
 
     return AdminOrderOut.model_validate(order)
+
+
+@router.post(
+    "/{id_or_slug}/orders/{order_id}/approve",
+    response_model=AdminOrderOut,
+    summary="Approve a pending_approval order and capture payment",
+)
+def approve_order(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    payload: Optional[OrderApprovalAction] = None,
+    db: Session = Depends(get_db),
+) -> AdminOrderOut:
+    """
+    Approve an exhibitor order currently in 'pending_approval' status.
+    Captures authorized funds in Stripe, confirms the order, and keeps spots reserved.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+
+    order_query = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id, Order.event_id == event.id)
+    )
+    if db.bind and getattr(db.bind, "dialect", None) and db.bind.dialect.name != "sqlite":
+        order_query = order_query.with_for_update()
+    order = order_query.first()
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    if order.status == "confirmed":
+        return AdminOrderOut.model_validate(order)
+
+    if order.status != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Impossible d'approuver cette commande (statut actuel: '{order.status}'). Seules les commandes 'pending_approval' peuvent être approuvées.",
+        )
+
+    notes = payload.reason if payload else None
+    approved_order = stripe_service.approve_and_capture_order(
+        db=db,
+        order=order,
+        notes=notes,
+    )
+
+    refreshed_order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == approved_order.id)
+        .first()
+    )
+    return AdminOrderOut.model_validate(refreshed_order)
+
+
+@router.post(
+    "/{id_or_slug}/orders/{order_id}/reject",
+    response_model=AdminOrderOut,
+    summary="Reject a pending_approval order, cancel authorization, and release spots",
+)
+def reject_order(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    payload: Optional[OrderApprovalAction] = None,
+    db: Session = Depends(get_db),
+) -> AdminOrderOut:
+    """
+    Reject an exhibitor order currently in 'pending_approval' status.
+    Cancels pre-authorization in Stripe without debiting, marks order as 'rejected',
+    and immediately releases stalls back to 'available'.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+
+    order_query = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id, Order.event_id == event.id)
+    )
+    if db.bind and getattr(db.bind, "dialect", None) and db.bind.dialect.name != "sqlite":
+        order_query = order_query.with_for_update()
+    order = order_query.first()
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    if order.status == "rejected":
+        return AdminOrderOut.model_validate(order)
+
+    if order.status != "pending_approval":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Impossible de refuser cette commande (statut actuel: '{order.status}'). Seules les commandes 'pending_approval' peuvent être refusées.",
+        )
+
+    reason = payload.reason if payload else None
+    rejected_order = stripe_service.reject_and_cancel_order(
+        db=db,
+        order=order,
+        reason=reason,
+    )
+
+    refreshed_order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == rejected_order.id)
+        .first()
+    )
+    return AdminOrderOut.model_validate(refreshed_order)

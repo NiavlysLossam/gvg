@@ -88,9 +88,11 @@ const CheckoutFormInner: React.FC<{
         setSubmitting(false);
       } else if (
         result.paymentIntent &&
-        (result.paymentIntent.status === 'succeeded' || result.paymentIntent.status === 'processing')
+        (result.paymentIntent.status === 'succeeded' ||
+          result.paymentIntent.status === 'processing' ||
+          result.paymentIntent.status === 'requires_capture')
       ) {
-        // Immediate in-app transition when redirect is not required (e.g. nominal card)
+        // Immediate in-app transition when redirect is not required (e.g. nominal card or manual capture)
         onSuccess(order.id);
       } else {
         // Handled/dismissed 3DS modal or unhandled status: reset submitting state
@@ -200,7 +202,15 @@ export const StripePaymentForm: React.FC<StripePaymentFormProps> = ({
         if (!isMounted) return;
         if (err instanceof ApiError && err.status === 409) {
           const detailStr = typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail);
-          if (detailStr.toLowerCase().includes('confirmée') || detailStr.toLowerCase().includes('confirmee')) {
+          const lowerDetail = detailStr.toLowerCase();
+          if (
+            lowerDetail.includes('confirmée') ||
+            lowerDetail.includes('confirmee') ||
+            lowerDetail.includes('validation') ||
+            lowerDetail.includes('approbation') ||
+            lowerDetail.includes('pending_approval') ||
+            lowerDetail.includes('approval')
+          ) {
             onSuccess(order.id);
             return;
           }

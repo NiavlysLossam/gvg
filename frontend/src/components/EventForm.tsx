@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Clock, MapPin, Euro, Mail, FileText, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, MapPin, Euro, Mail, FileText, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { EventCreateInput, EventModel } from '../types/event';
 import { createEvent, ApiError } from '../lib/api';
 
@@ -283,6 +283,27 @@ export const EventForm: React.FC<EventFormProps> = ({ onSuccess }) => {
           onChange={(e) => setFormData({ ...formData, rules_text: e.target.value })}
           className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
         />
+      </div>
+
+      {/* Modération manuelle */}
+      <div className="pt-4 border-t border-gray-100">
+        <label className="flex items-start gap-3 cursor-pointer p-4 rounded-xl border border-gray-200 hover:border-emerald-300 bg-gray-50/50 hover:bg-emerald-50/30 transition">
+          <input
+            type="checkbox"
+            checked={formData.manual_approval_required || false}
+            onChange={(e) => setFormData({ ...formData, manual_approval_required: e.target.checked })}
+            className="w-5 h-5 rounded-md text-emerald-600 border-gray-300 focus:ring-emerald-500 mt-0.5 cursor-pointer"
+          />
+          <div className="space-y-0.5">
+            <span className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-600" />
+              <span>Modération manuelle des inscriptions</span>
+            </span>
+            <p className="text-xs text-gray-500 leading-relaxed">
+              Active la pré-autorisation bancaire Stripe. Les réservations restent en attente tant que vous ne les validez pas sur votre tableau de bord, sans débit immédiat sur le compte de l'exposant.
+            </p>
+          </div>
+        </label>
       </div>
 
       <div className="flex justify-end pt-4 border-t border-gray-100">

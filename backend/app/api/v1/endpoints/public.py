@@ -569,13 +569,33 @@ def get_public_order(
             import stripe
             stripe.api_key = settings.STRIPE_SECRET_KEY
             pi = stripe.PaymentIntent.retrieve(order.stripe_payment_intent_id)
-            if getattr(pi, "status", None) == "succeeded":
+            pi_status = getattr(pi, "status", None) if not isinstance(pi, dict) else pi.get("status")
+            if pi_status == "succeeded":
+                amount_received = (
+                    pi.get("amount_received")
+                    if (isinstance(pi, dict) and "amount_received" in pi and pi.get("amount_received") is not None)
+                    else (pi.get("amount") if isinstance(pi, dict) else (getattr(pi, "amount_received", None) or getattr(pi, "amount", None)))
+                )
                 stripe_service.confirm_order_from_payment_intent(
                     db,
                     payment_intent_id=order.stripe_payment_intent_id,
                     order_id=str(order.id),
-                    amount_received=getattr(pi, "amount_received", None),
-                    currency=getattr(pi, "currency", None),
+                    amount_received=amount_received,
+                    currency=pi.get("currency") if isinstance(pi, dict) else getattr(pi, "currency", None),
+                )
+                db.refresh(order)
+            elif pi_status == "requires_capture" and order.status == "pending":
+                amount_capturable = (
+                    pi.get("amount_capturable")
+                    if (isinstance(pi, dict) and "amount_capturable" in pi and pi.get("amount_capturable") is not None)
+                    else (pi.get("amount") if isinstance(pi, dict) else (getattr(pi, "amount_capturable", None) or getattr(pi, "amount", None)))
+                )
+                stripe_service.hold_order_for_approval(
+                    db,
+                    payment_intent_id=order.stripe_payment_intent_id,
+                    order_id=str(order.id),
+                    amount_received=amount_capturable,
+                    currency=pi.get("currency") if isinstance(pi, dict) else getattr(pi, "currency", None),
                 )
                 db.refresh(order)
         except Exception:
