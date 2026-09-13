@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy import (
     Column,
     String,
+    Text,
     Integer,
     DateTime,
     Boolean,
@@ -53,11 +54,15 @@ class Order(Base):
     # Exhibitor contact information (Guest checkout - no password)
     first_name = Column(String(100), nullable=False)
     last_name = Column(String(100), nullable=False)
-    email = Column(String(255), nullable=False, index=True)
+    email = Column(String(255), nullable=True, index=True)
     phone = Column(String(50), nullable=False)
-    street_address = Column(String(255), nullable=False)
-    postal_code = Column(String(20), nullable=False)
-    city = Column(String(100), nullable=False)
+    street_address = Column(String(255), nullable=True)
+    postal_code = Column(String(20), nullable=True)
+    city = Column(String(100), nullable=True)
+
+    # Offline manual booking metadata
+    offline_payment_reference = Column(String(255), nullable=True)
+    admin_notes = Column(Text, nullable=True)
 
     # Legal sworn declaration (art. L310-2 du Code de commerce)
     honor_declaration_accepted = Column(Boolean, nullable=False, default=True)

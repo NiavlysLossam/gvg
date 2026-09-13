@@ -37,6 +37,7 @@ import {
 import { SpotPropertyDrawer, SpotFormData } from './SpotPropertyDrawer';
 import { DuplicateSpotModal } from './DuplicateSpotModal';
 import { BatchRenumberModal } from './BatchRenumberModal';
+import { ManualBookingModal } from './ManualBookingModal';
 
 interface SpotEditorProps {
   event: EventModel;
@@ -200,6 +201,10 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
   // Batch renumbering modal state
   const [isBatchRenumberModalOpen, setIsBatchRenumberModalOpen] = useState<boolean>(false);
   const [isBatchRenumbering, setIsBatchRenumbering] = useState<boolean>(false);
+
+  // Manual booking modal state
+  const [isManualBookingOpen, setIsManualBookingOpen] = useState<boolean>(false);
+  const [manualBookingSpot, setManualBookingSpot] = useState<SpotFeature | null>(null);
 
   // Magnetic snapping state
   const [snapEnabled, setSnapEnabled] = useState<boolean>(true);
@@ -723,10 +728,15 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
 
         // Safe HTML escaping for tooltip label
         const escapedLabel = escapeHtml(spot.properties.label);
+        const offlineTag =
+          spot.properties.status === 'reserved' && spot.properties.is_offline
+            ? `<div class="mt-0.5"><span class="inline-block px-1 py-0.5 bg-indigo-100 text-indigo-800 text-[9px] font-bold rounded border border-indigo-200">Hors-ligne</span></div>`
+            : '';
         poly.bindTooltip(
           `<div class="text-center font-bold leading-tight select-none">
             <div class="text-xs text-gray-900">${escapedLabel}</div>
             <div class="text-[10px] text-gray-600 font-medium">${spot.properties.linear_meters}m • ${spot.properties.price.toFixed(2)}€</div>
+            ${offlineTag}
           </div>`,
           {
             permanent: true,
@@ -1281,6 +1291,10 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
           onSave={handleSaveSpot}
           onDelete={handleDeleteSpot}
           onOpenDuplicateModal={handleOpenDuplicate}
+          onOpenManualBooking={(spot) => {
+            setManualBookingSpot(spot);
+            setIsManualBookingOpen(true);
+          }}
           isSaving={isSaving}
           isDeleting={isDeleting}
         />
@@ -1309,6 +1323,30 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         onRenumber={handleRenumberSpots}
         isRenumbering={isBatchRenumbering}
       />
+
+      {/* Manual Booking Modal */}
+      {isManualBookingOpen && (
+        <ManualBookingModal
+          isOpen={isManualBookingOpen}
+          event={event}
+          preSelectedSpot={manualBookingSpot}
+          onClose={() => {
+            setIsManualBookingOpen(false);
+            setManualBookingSpot(null);
+          }}
+          onSuccess={(orderNumber) => {
+            setIsManualBookingOpen(false);
+            setManualBookingSpot(null);
+            setDrawerOpen(false);
+            setSelectedSpot(null);
+            loadSpots();
+            setToast({
+              message: `Réservation manuelle n° ${orderNumber} enregistrée avec succès !`,
+              type: 'success',
+            });
+          }}
+        />
+      )}
 
       {/* Custom Styles for spot labels on Leaflet canvas */}
       <style>{`

@@ -10,6 +10,8 @@ export interface PublicSpotProperties {
   price_cents: number;
   price: number;
   status: PublicSpotStatus;
+  is_offline?: boolean;
+  payment_method?: string | null;
   locked_until?: string | null;
   created_at?: string | null;
   updated_at?: string | null;

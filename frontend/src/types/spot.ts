@@ -11,6 +11,8 @@ export interface SpotProperties {
   price_cents: number;
   price: number;
   status: 'available' | 'locked' | 'reserved' | 'blocked';
+  is_offline?: boolean;
+  payment_method?: string | null;
   locked_until?: string | null;
   created_at?: string | null;
   updated_at?: string | null;

@@ -1,7 +1,7 @@
 import re
 import uuid
 from datetime import datetime
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Literal
 from pydantic import (
     BaseModel,
     ConfigDict,
@@ -123,17 +123,18 @@ class OrderOut(BaseModel):
     order_number: str
     first_name: str
     last_name: str
-    email: str
+    email: Optional[str] = None
     phone: str
-    street_address: str
-    postal_code: str
-    city: str
+    street_address: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
     honor_declaration_accepted: bool
     honor_declaration_accepted_at: datetime
     total_price_cents: int
     total_price: float
     status: str
     payment_method: str
+    offline_payment_reference: Optional[str] = None
     stripe_payment_intent_id: Optional[str] = None
     access_token: str
     items: List[BookingItemOut] = []
@@ -154,17 +155,19 @@ class OrderOut(BaseModel):
                 "order_number": data.order_number,
                 "first_name": data.first_name,
                 "last_name": data.last_name,
-                "email": data.email,
+                "email": getattr(data, "email", None),
                 "phone": data.phone,
-                "street_address": data.street_address,
-                "postal_code": data.postal_code,
-                "city": data.city,
+                "street_address": getattr(data, "street_address", None),
+                "postal_code": getattr(data, "postal_code", None),
+                "city": getattr(data, "city", None),
                 "honor_declaration_accepted": data.honor_declaration_accepted,
                 "honor_declaration_accepted_at": data.honor_declaration_accepted_at,
                 "total_price_cents": cents,
                 "total_price": round(cents / 100.0, 2),
                 "status": data.status,
                 "payment_method": data.payment_method,
+                "offline_payment_reference": getattr(data, "offline_payment_reference", None),
+                "admin_notes": getattr(data, "admin_notes", None),
                 "stripe_payment_intent_id": getattr(data, "stripe_payment_intent_id", None),
                 "access_token": data.access_token,
                 "items": items,
@@ -180,4 +183,179 @@ class PaymentIntentResponse(BaseModel):
     payment_intent_id: str
     amount_cents: int
     currency: str = "eur"
+
+
+class OfflineOrderCreate(BaseModel):
+    spot_ids: List[uuid.UUID] = Field(..., min_length=1, description="Liste des IDs de stands à réserver")
+    first_name: str = Field(..., min_length=1, max_length=100, description="Prénom de l'exposant")
+    last_name: str = Field(..., min_length=1, max_length=100, description="Nom de l'exposant")
+    email: Optional[str] = Field(default=None, max_length=255, description="Adresse email facultative")
+    phone: str = Field(..., min_length=5, max_length=50, description="Numéro de téléphone")
+    street_address: Optional[str] = Field(default=None, max_length=255, description="Adresse postale facultative")
+    postal_code: Optional[str] = Field(default=None, max_length=20, description="Code postal facultatif")
+    city: Optional[str] = Field(default=None, max_length=100, description="Ville facultative")
+    payment_method: Literal["check", "cash", "other"] = Field(
+        ...,
+        description="Moyen de paiement hors-ligne : check, cash, other",
+    )
+    offline_payment_reference: Optional[str] = Field(
+        default=None, max_length=255, description="Référence ou n° de chèque"
+    )
+    admin_notes: Optional[str] = Field(
+        default=None, max_length=1000, description="Notes administrateur internes"
+    )
+    custom_price_cents: Optional[int] = Field(
+        default=None, ge=0, description="Montant personnalisé en centimes (si omit, calculé d'après les stands)"
+    )
+
+    @field_validator("email")
+    @classmethod
+    def validate_optional_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip().lower()
+        if not cleaned:
+            return None
+        if not EMAIL_REGEX.match(cleaned):
+            raise ValueError("L'adresse email est invalide.")
+        return cleaned
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def validate_non_empty_names(cls, v: str, info) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            field_name = info.field_name
+            label = "Le prénom" if field_name == "first_name" else "Le nom"
+            raise ValueError(f"{label} est obligatoire.")
+        return cleaned
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: str) -> str:
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Le numéro de téléphone est obligatoire.")
+        digits_only = re.sub(r"\D", "", cleaned)
+        if len(digits_only) < 8 or len(digits_only) > 15:
+            raise ValueError("Le numéro de téléphone doit contenir entre 8 et 15 chiffres.")
+        return cleaned
+
+    @field_validator("street_address", "postal_code", "city", "offline_payment_reference", "admin_notes")
+    @classmethod
+    def clean_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        return cleaned if cleaned else None
+
+
+class EventDashboardStats(BaseModel):
+    total_spots: int
+    reserved_spots: int
+    locked_spots: int
+    available_spots: int
+    occupancy_rate: float
+    total_revenue_cents: int
+    total_revenue: float
+    stripe_revenue_cents: int
+    stripe_revenue: float
+    offline_revenue_cents: int
+    offline_revenue: float
+    offline_check_cents: int = 0
+    offline_check_revenue: float = 0.0
+    offline_cash_cents: int = 0
+    offline_cash_revenue: float = 0.0
+    offline_other_cents: int = 0
+    offline_other_revenue: float = 0.0
+    total_orders_count: int
+    confirmed_orders_count: int
+    pending_orders_count: int
+    offline_orders_count: int
+
+
+class AdminOrderOut(BaseModel):
+    id: uuid.UUID
+    event_id: uuid.UUID
+    order_number: str
+    first_name: str
+    last_name: str
+    full_name: str
+    email: Optional[str] = None
+    phone: str
+    street_address: Optional[str] = None
+    postal_code: Optional[str] = None
+    city: Optional[str] = None
+    honor_declaration_accepted: bool = True
+    honor_declaration_accepted_at: Optional[datetime] = None
+    total_price_cents: int
+    total_price: float
+    status: str
+    payment_method: str
+    is_offline: bool = False
+    offline_payment_reference: Optional[str] = None
+    admin_notes: Optional[str] = None
+    stripe_payment_intent_id: Optional[str] = None
+    access_token: str
+    items: List[BookingItemOut] = []
+    spot_labels: List[str] = []
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_admin_order_fields(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            cents = getattr(data, "total_price_cents", 0)
+            items = getattr(data, "items", [])
+            payment_method = getattr(data, "payment_method", "stripe")
+            is_offline = payment_method in ("check", "cash", "other")
+            first_name = getattr(data, "first_name", "")
+            last_name = getattr(data, "last_name", "")
+            full_name = f"{first_name} {last_name}".strip()
+
+            spot_labels = []
+            for item in items:
+                spot = getattr(item, "spot", None)
+                if spot and getattr(spot, "label", None):
+                    spot_labels.append(spot.label)
+
+            return {
+                "id": data.id,
+                "event_id": data.event_id,
+                "order_number": data.order_number,
+                "first_name": first_name,
+                "last_name": last_name,
+                "full_name": full_name,
+                "email": getattr(data, "email", None),
+                "phone": getattr(data, "phone", ""),
+                "street_address": getattr(data, "street_address", None),
+                "postal_code": getattr(data, "postal_code", None),
+                "city": getattr(data, "city", None),
+                "honor_declaration_accepted": getattr(data, "honor_declaration_accepted", True),
+                "honor_declaration_accepted_at": getattr(data, "honor_declaration_accepted_at", None),
+                "total_price_cents": cents,
+                "total_price": round(cents / 100.0, 2),
+                "status": data.status,
+                "payment_method": payment_method,
+                "is_offline": is_offline,
+                "offline_payment_reference": getattr(data, "offline_payment_reference", None),
+                "admin_notes": getattr(data, "admin_notes", None),
+                "stripe_payment_intent_id": getattr(data, "stripe_payment_intent_id", None),
+                "access_token": data.access_token,
+                "items": items,
+                "spot_labels": spot_labels,
+                "created_at": getattr(data, "created_at", None),
+                "updated_at": getattr(data, "updated_at", None),
+            }
+        return data
+
+
+class AdminOrderListResponse(BaseModel):
+    items: List[AdminOrderOut]
+    total: int
+    stats: Optional[EventDashboardStats] = None
+
 

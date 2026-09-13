@@ -69,6 +69,8 @@ def test_alembic_migrations_upgrade_and_downgrade():
         assert "total_price_cents" in order_columns
         assert "status" in order_columns
         assert "access_token" in order_columns
+        assert "offline_payment_reference" in order_columns
+        assert "admin_notes" in order_columns
 
         booking_columns = [c["name"] for c in inspector.get_columns("booking_items")]
         assert "id" in booking_columns

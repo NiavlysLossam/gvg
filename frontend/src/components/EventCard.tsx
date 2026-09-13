@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool } from 'lucide-react';
+import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool, Users } from 'lucide-react';
 import { EventModel } from '../types/event';
 
 interface EventCardProps {
@@ -7,6 +7,7 @@ interface EventCardProps {
   onConfigurePlan?: (event: EventModel) => void;
   onOpenEditor?: (event: EventModel) => void;
   onViewPublic?: (slug: string) => void;
+  onOpenInscriptions?: (event: EventModel) => void;
 }
 
 export const EventCard: React.FC<EventCardProps> = ({
@@ -14,6 +15,7 @@ export const EventCard: React.FC<EventCardProps> = ({
   onConfigurePlan,
   onOpenEditor,
   onViewPublic,
+  onOpenInscriptions,
 }) => {
   const startDate = new Date(event.start_date);
   const formattedDate = startDate.toLocaleDateString('fr-FR', {
@@ -107,6 +109,18 @@ export const EventCard: React.FC<EventCardProps> = ({
               title="Voir la vue publique du plan"
             >
               <span>Vue publique</span>
+            </button>
+          )}
+
+          {onOpenInscriptions && (
+            <button
+              type="button"
+              onClick={() => onOpenInscriptions(event)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-lg border border-indigo-200 transition"
+              title="Voir le tableau de bord des inscriptions"
+            >
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Inscriptions</span>
             </button>
           )}
         </div>

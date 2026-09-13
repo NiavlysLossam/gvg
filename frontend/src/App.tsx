@@ -7,13 +7,15 @@ import {
   RefreshCw,
   AlertCircle,
   PenTool,
+  Users,
 } from 'lucide-react';
 import { EventModel } from './types/event';
-import { fetchEvents } from './lib/api';
+import { fetchEvents, fetchEvent } from './lib/api';
 import { EventForm } from './components/EventForm';
 import { EventCard } from './components/EventCard';
 import { MapCalibration } from './components/MapCalibration';
 import { SpotEditor } from './components/SpotEditor';
+import { RegistrationsPage } from './pages/RegistrationsPage';
 import { PublicEventPage } from './pages/PublicEventPage';
 import { ReservationPage } from './pages/ReservationPage';
 import { ConfirmationPage } from './pages/ConfirmationPage';
@@ -22,6 +24,25 @@ interface PublicRouteState {
   slug: string;
   view: 'map' | 'reservation' | 'confirmation';
   orderId?: string;
+}
+
+function parseAdminRoute(): { eventId: string; view: 'inscriptions' } | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const pathname = window.location.pathname;
+    const match = pathname.match(/^\/admin\/(?:e|events)\/([^/?#]+)\/inscriptions\/?$/);
+    if (match && match[1]) {
+      return { eventId: decodeURIComponent(match[1]), view: 'inscriptions' };
+    }
+    const hash = window.location.hash;
+    const hashMatch = hash.match(/^#\/admin\/(?:e|events)\/([^/?#]+)\/inscriptions\/?$/);
+    if (hashMatch && hashMatch[1]) {
+      return { eventId: decodeURIComponent(hashMatch[1]), view: 'inscriptions' };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function parsePublicRoute(): PublicRouteState | null {
@@ -110,7 +131,7 @@ function parsePublicRoute(): PublicRouteState | null {
 
 export const App: React.FC = () => {
   const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
-  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions'>('list');
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -119,7 +140,16 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = () => {
-      setPublicRoute(parsePublicRoute());
+      const pub = parsePublicRoute();
+      setPublicRoute(pub);
+      if (!pub) {
+        const adm = parseAdminRoute();
+        if (adm) {
+          setActiveTab('inscriptions');
+        } else {
+          setActiveTab('list');
+        }
+      }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -155,6 +185,23 @@ export const App: React.FC = () => {
     try {
       const data = await fetchEvents();
       setEvents(data.items);
+
+      const adm = parseAdminRoute();
+      if (adm) {
+        const matched = data.items.find((e) => e.id === adm.eventId || e.slug === adm.eventId);
+        if (matched) {
+          setSelectedEvent(matched);
+          setActiveTab('inscriptions');
+        } else {
+          try {
+            const fetched = await fetchEvent(adm.eventId);
+            setSelectedEvent(fetched);
+            setActiveTab('inscriptions');
+          } catch {
+            // ignore
+          }
+        }
+      }
     } catch (err: unknown) {
       setFetchError(err instanceof Error ? err.message : 'Erreur lors du chargement des événements');
     } finally {
@@ -186,6 +233,12 @@ export const App: React.FC = () => {
   const handleOpenEditor = (event: EventModel) => {
     setSelectedEvent(event);
     setActiveTab('editor');
+  };
+
+  const handleOpenInscriptions = (event: EventModel) => {
+    setSelectedEvent(event);
+    setActiveTab('inscriptions');
+    window.history.pushState({}, '', `/admin/e/${encodeURIComponent(event.id)}/inscriptions`);
   };
 
   const handleSavedCalibration = (updatedEvent: EventModel) => {
@@ -268,6 +321,13 @@ export const App: React.FC = () => {
               </div>
             )}
 
+            {activeTab === 'inscriptions' && selectedEvent && (
+              <div className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-indigo-50 text-indigo-800 border border-indigo-200 flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="truncate max-w-[160px]">{selectedEvent.title} (Inscriptions)</span>
+              </div>
+            )}
+
             <button
               onClick={() => setActiveTab('create')}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-sm ${
@@ -336,6 +396,17 @@ export const App: React.FC = () => {
               onNavigateToCalibration={() => setActiveTab('calibrate')}
             />
           </div>
+        ) : activeTab === 'inscriptions' && selectedEvent ? (
+          <div className="max-w-7xl mx-auto">
+            <RegistrationsPage
+              event={selectedEvent}
+              onBack={() => {
+                setActiveTab('list');
+                window.history.pushState({}, '', '/');
+              }}
+              onOpenEditor={() => handleOpenEditor(selectedEvent)}
+            />
+          </div>
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -388,6 +459,7 @@ export const App: React.FC = () => {
                     onConfigurePlan={handleConfigurePlan}
                     onOpenEditor={handleOpenEditor}
                     onViewPublic={navigateToPublic}
+                    onOpenInscriptions={handleOpenInscriptions}
                   />
                 ))}
               </div>

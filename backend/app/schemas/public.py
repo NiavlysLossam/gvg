@@ -18,6 +18,7 @@ class PublicSpotProperties(BaseModel):
     price_cents: int
     price: float
     status: Literal["available", "locked", "reserved", "blocked"]
+    is_offline: bool = False
     locked_until: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -137,6 +138,7 @@ def public_spot_to_feature(
     spot: Any,
     effective_status: str,
     geojson_str: Optional[str] = None,
+    is_offline: bool = False,
 ) -> PublicSpotFeature:
     """Converts a Spot instance with computed effective_status to a public GeoJSON Feature."""
     if geojson_str:
@@ -156,6 +158,7 @@ def public_spot_to_feature(
             price_cents=spot.price_cents,
             price=spot.price,
             status=effective_status,
+            is_offline=is_offline,
             locked_until=spot.locked_until if effective_status == "locked" else None,
             created_at=spot.created_at,
             updated_at=spot.updated_at,
@@ -166,17 +169,22 @@ def public_spot_to_feature(
 def public_spots_to_feature_collection(
     spots_data: list,
 ) -> PublicSpotFeatureCollection:
-    """Converts list of (Spot, geojson_str, effective_status) tuples/rows to PublicSpotFeatureCollection."""
+    """Converts list of (Spot, geojson_str, effective_status, [order_payment_method]) tuples/rows to PublicSpotFeatureCollection."""
     features = []
     for item in spots_data:
+        is_offline = False
         if hasattr(item, "__getitem__") and not isinstance(item, (str, bytes)):
             spot = item[0]
             geojson_str = item[1] if len(item) > 1 else None
             eff_status = item[2] if len(item) > 2 else spot.status
+            if len(item) > 3:
+                order_pm = item[3]
+                is_offline = (eff_status == "reserved" and order_pm in ("check", "cash", "other"))
         else:
             spot = item
             geojson_str = None
             eff_status = getattr(spot, "effective_status", spot.status)
-        features.append(public_spot_to_feature(spot, eff_status, geojson_str))
+            is_offline = getattr(spot, "is_offline", False)
+        features.append(public_spot_to_feature(spot, eff_status, geojson_str, is_offline=is_offline))
     return PublicSpotFeatureCollection(features=features)
 

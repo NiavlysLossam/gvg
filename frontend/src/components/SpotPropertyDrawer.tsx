@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Tag, Ruler, Euro, Trash2, Check, AlertCircle, Sparkles, Copy } from 'lucide-react';
+import { X, Tag, Ruler, Euro, Trash2, Check, AlertCircle, Sparkles, Copy, PlusCircle } from 'lucide-react';
 import { SpotFeature } from '../types/spot';
 
 export interface SpotFormData {
@@ -19,6 +19,7 @@ interface SpotPropertyDrawerProps {
   onSave: (data: SpotFormData) => Promise<void>;
   onDelete?: (spotId: string) => Promise<void>;
   onOpenDuplicateModal?: (spot: SpotFeature) => void;
+  onOpenManualBooking?: (spot: SpotFeature) => void;
   isSaving: boolean;
   isDeleting: boolean;
 }
@@ -33,6 +34,7 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
   onSave,
   onDelete,
   onOpenDuplicateModal,
+  onOpenManualBooking,
   isSaving,
   isDeleting,
 }) => {
@@ -158,27 +160,53 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
 
         {/* Spot status badge if existing */}
         {!isNew && spot && (
-          <div className="flex items-center justify-between bg-gray-50 px-3.5 py-2.5 rounded-lg border border-gray-200 text-xs">
-            <span className="text-gray-500 font-medium">Statut actuel :</span>
-            <span
-              className={`px-2 py-0.5 rounded-full font-semibold ${
-                spot.properties.status === 'available'
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : spot.properties.status === 'reserved'
-                  ? 'bg-blue-100 text-blue-800'
-                  : spot.properties.status === 'locked'
-                  ? 'bg-amber-100 text-amber-800'
-                  : 'bg-gray-100 text-gray-800'
-              }`}
-            >
-              {spot.properties.status === 'available'
-                ? 'Disponible'
-                : spot.properties.status === 'reserved'
-                ? 'Réservé'
-                : spot.properties.status === 'locked'
-                ? 'Verrouillé (en cours)'
-                : 'Bloqué'}
-            </span>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between bg-gray-50 px-3.5 py-2.5 rounded-lg border border-gray-200 text-xs">
+              <span className="text-gray-500 font-medium">Statut actuel :</span>
+              <div className="flex items-center gap-1.5">
+                <span
+                  className={`px-2 py-0.5 rounded-full font-semibold ${
+                    spot.properties.status === 'available'
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : spot.properties.status === 'reserved'
+                      ? 'bg-blue-100 text-blue-800'
+                      : spot.properties.status === 'locked'
+                      ? 'bg-amber-100 text-amber-800'
+                      : 'bg-gray-100 text-gray-800'
+                  }`}
+                >
+                  {spot.properties.status === 'available'
+                    ? 'Disponible'
+                    : spot.properties.status === 'reserved'
+                    ? 'Réservé'
+                    : spot.properties.status === 'locked'
+                    ? 'Verrouillé (en cours)'
+                    : 'Bloqué'}
+                </span>
+                {spot.properties.status === 'reserved' && spot.properties.is_offline && (
+                  <span className="px-2 py-0.5 rounded-full font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                    Hors-ligne
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {spot.properties.status === 'available' && onOpenManualBooking && (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 flex items-center justify-between gap-2">
+                <div className="text-xs text-emerald-900">
+                  <div className="font-bold">Stand libre</div>
+                  <div className="text-[11px] text-emerald-700">Enregistrer une inscription mairie</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => onOpenManualBooking(spot)}
+                  className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 shadow-xs whitespace-nowrap"
+                >
+                  <PlusCircle className="w-3.5 h-3.5" />
+                  <span>Réservation manuelle</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 

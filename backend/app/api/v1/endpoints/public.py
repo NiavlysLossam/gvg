@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, status
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import func, case, and_, or_, update, text
+from sqlalchemy import func, case, and_, or_, update, text, select
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -91,11 +91,21 @@ def get_public_spots(
         else_=Spot.status,
     ).label("effective_status")
 
+    order_payment_method = (
+        select(Order.payment_method)
+        .join(BookingItem, BookingItem.order_id == Order.id)
+        .where(BookingItem.spot_id == Spot.id, Order.status == "confirmed")
+        .order_by(Order.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
     results = (
         db.query(
             Spot,
             func.ST_AsGeoJSON(Spot.geom).label("geojson"),
             effective_status,
+            order_payment_method.label("order_payment_method"),
         )
         .filter(Spot.event_id == event.id)
         .order_by(Spot.created_at.asc())

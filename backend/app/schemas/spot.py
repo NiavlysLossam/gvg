@@ -36,6 +36,8 @@ class SpotProperties(BaseModel):
     price_cents: int
     price: float
     status: Literal["available", "locked", "reserved", "blocked"]
+    is_offline: bool = False
+    payment_method: Optional[str] = None
     locked_until: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -320,7 +322,12 @@ def wkb_or_str_to_geojson_polygon(geom_val: Any) -> GeoJSONPolygon:
     raise ValueError(f"Impossible de convertir la géométrie {type(geom_val)} en GeoJSON")
 
 
-def spot_to_feature(spot: Any, geojson_str: Optional[str] = None) -> SpotFeature:
+def spot_to_feature(
+    spot: Any,
+    geojson_str: Optional[str] = None,
+    is_offline: bool = False,
+    payment_method: Optional[str] = None,
+) -> SpotFeature:
     """Converts a Spot SQLAlchemy model instance to a GeoJSON Feature."""
     if geojson_str:
         geom_dict = json.loads(geojson_str)
@@ -339,6 +346,8 @@ def spot_to_feature(spot: Any, geojson_str: Optional[str] = None) -> SpotFeature
             price_cents=spot.price_cents,
             price=spot.price,
             status=spot.status,
+            is_offline=is_offline,
+            payment_method=payment_method,
             locked_until=spot.locked_until,
             created_at=spot.created_at,
             updated_at=spot.updated_at,
@@ -350,15 +359,23 @@ def spots_to_feature_collection(spots_with_geojson: list) -> SpotFeatureCollecti
     """Converts list of (Spot, geojson_str) tuples/Rows or Spot objects to GeoJSON FeatureCollection."""
     features = []
     for item in spots_with_geojson:
+        is_offline = False
+        payment_method = None
         if hasattr(item, "__getitem__") and not isinstance(item, (str, bytes)):
             try:
                 spot = item[0]
                 geojson_str = item[1] if len(item) > 1 else None
+                if len(item) > 2:
+                    order_pm = item[2]
+                    is_offline = (spot.status == "reserved" and order_pm in ("check", "cash", "other"))
+                    payment_method = order_pm if spot.status == "reserved" else None
             except (IndexError, TypeError):
                 spot = item
                 geojson_str = None
         else:
             spot = item
             geojson_str = None
-        features.append(spot_to_feature(spot, geojson_str))
+            is_offline = getattr(spot, "is_offline", False)
+            payment_method = getattr(spot, "payment_method", None)
+        features.append(spot_to_feature(spot, geojson_str, is_offline=is_offline, payment_method=payment_method))
     return SpotFeatureCollection(features=features)

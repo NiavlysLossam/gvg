@@ -3,11 +3,12 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy import func
+from sqlalchemy import func, select
 
 from app.core.database import get_db
 from app.models.event import Event
 from app.models.spot import Spot
+from app.models.order import Order, BookingItem
 from app.schemas.spot import (
     SpotCreate,
     SpotUpdate,
@@ -54,8 +55,21 @@ def list_spots(
     """Retrieve all stalls for the specified event in GeoJSON format."""
     event = get_event_by_id_or_slug(db, id_or_slug)
 
+    order_payment_method = (
+        select(Order.payment_method)
+        .join(BookingItem, BookingItem.order_id == Order.id)
+        .where(BookingItem.spot_id == Spot.id, Order.status == "confirmed")
+        .order_by(Order.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
     results = (
-        db.query(Spot, func.ST_AsGeoJSON(Spot.geom).label("geojson"))
+        db.query(
+            Spot,
+            func.ST_AsGeoJSON(Spot.geom).label("geojson"),
+            order_payment_method.label("order_payment_method"),
+        )
         .filter(Spot.event_id == event.id)
         .order_by(Spot.created_at.asc())
         .all()
@@ -365,8 +379,21 @@ def get_spot(
     """Retrieve details and geometry for a single spot."""
     event = get_event_by_id_or_slug(db, id_or_slug)
 
+    order_payment_method = (
+        select(Order.payment_method)
+        .join(BookingItem, BookingItem.order_id == Order.id)
+        .where(BookingItem.spot_id == Spot.id, Order.status == "confirmed")
+        .order_by(Order.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
     res = (
-        db.query(Spot, func.ST_AsGeoJSON(Spot.geom).label("geojson"))
+        db.query(
+            Spot,
+            func.ST_AsGeoJSON(Spot.geom).label("geojson"),
+            order_payment_method.label("order_payment_method"),
+        )
         .filter(Spot.id == spot_id, Spot.event_id == event.id)
         .first()
     )
@@ -377,7 +404,8 @@ def get_spot(
             detail="Emplacement introuvable",
         )
 
-    return spot_to_feature(res.Spot, res.geojson)
+    is_offline = (res.Spot.status == "reserved" and res.order_payment_method in ("check", "cash", "other"))
+    return spot_to_feature(res.Spot, res.geojson, is_offline=is_offline, payment_method=res.order_payment_method)
 
 
 @router.patch(
@@ -439,8 +467,27 @@ def update_spot(
             detail=f"Un emplacement avec le libellé « {spot.label} » existe déjà pour cet événement",
         ) from exc
 
-    geojson_str = db.query(func.ST_AsGeoJSON(Spot.geom)).filter(Spot.id == spot.id).scalar()
-    return spot_to_feature(spot, geojson_str)
+    order_payment_method = (
+        select(Order.payment_method)
+        .join(BookingItem, BookingItem.order_id == Order.id)
+        .where(BookingItem.spot_id == Spot.id, Order.status == "confirmed")
+        .order_by(Order.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    res = (
+        db.query(
+            func.ST_AsGeoJSON(Spot.geom).label("geojson"),
+            order_payment_method.label("order_payment_method"),
+        )
+        .filter(Spot.id == spot.id)
+        .first()
+    )
+    geojson_str = res.geojson if res else None
+    order_pm = res.order_payment_method if res else None
+    is_offline = (spot.status == "reserved" and order_pm in ("check", "cash", "other"))
+    return spot_to_feature(spot, geojson_str, is_offline=is_offline, payment_method=order_pm)
 
 
 @router.delete(

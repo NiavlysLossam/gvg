@@ -311,14 +311,19 @@ export const PublicMap: React.FC<PublicMapProps> = ({
         const escapedLabel = escapeHtml(spot.properties.label);
         const priceFormatted = `${spot.properties.price.toFixed(2).replace('.', ',')} €`;
         const cartBadge = isInCart
-          ? `<div class="mt-0.5"><span class="inline-block px-1 py-0.2 bg-blue-600 text-white text-[9px] font-bold rounded">Mon panier</span></div>`
+          ? `<div class="mt-0.5"><span class="inline-block px-1 py-0.5 bg-blue-600 text-white text-[9px] font-bold rounded">Mon panier</span></div>`
           : '';
+        const offlineBadge =
+          spot.properties.status === 'reserved' && spot.properties.is_offline
+            ? `<div class="mt-0.5"><span class="inline-block px-1 py-0.5 bg-indigo-100 text-indigo-800 text-[9px] font-bold rounded border border-indigo-200">Hors-ligne</span></div>`
+            : '';
 
         poly.bindTooltip(
           `<div class="text-center font-bold leading-tight select-none pointer-events-none">
             <div class="text-xs text-gray-900">${escapedLabel}</div>
             <div class="text-[10px] text-gray-700 font-medium">${spot.properties.linear_meters}m • ${priceFormatted}</div>
             ${cartBadge}
+            ${offlineBadge}
           </div>`,
           {
             permanent: true,

@@ -109,8 +109,15 @@ export const SpotDetailDrawer: React.FC<SpotDetailDrawerProps> = ({ spot, onClos
           {status === 'reserved' && (
             <div className="flex items-start gap-3 p-3.5 rounded-xl bg-gray-50 border border-gray-200 text-gray-800">
               <Ban className="w-5 h-5 text-gray-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <div className="text-sm font-bold">Emplacement déjà réservé</div>
+              <div className="flex-1">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-bold">Emplacement déjà réservé</div>
+                  {spot.properties.is_offline && (
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                      Hors-ligne
+                    </span>
+                  )}
+                </div>
                 <div className="text-xs text-gray-500 mt-0.5">
                   Cette place a été attribuée à un exposant inscrit. Elle n'est plus disponible à la
                   vente.

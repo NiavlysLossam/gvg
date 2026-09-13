@@ -460,5 +460,92 @@ export async function createPaymentIntent(
   return response.json();
 }
 
+export async function fetchEventOrders(
+  eventIdOrSlug: string,
+  status?: string,
+  search?: string,
+  skip: number = 0,
+  limit: number = 100
+): Promise<import('../types/order').AdminOrderListResponse> {
+  const params = new URLSearchParams();
+  if (status && status !== 'all') {
+    params.set('status', status);
+  }
+  if (search && search.trim()) {
+    params.set('search', search.trim());
+  }
+  if (skip > 0) {
+    params.set('skip', String(skip));
+  }
+  if (limit !== 100) {
+    params.set('limit', String(limit));
+  }
 
+  const queryString = params.toString() ? `?${params.toString()}` : '';
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders${queryString}`
+  );
 
+  if (!response.ok) {
+    let detail = 'Erreur lors de la récupération des inscriptions';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function fetchEventDashboardStats(
+  eventIdOrSlug: string
+): Promise<import('../types/order').DashboardStats> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/dashboard-stats`
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la récupération des statistiques';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function createManualBooking(
+  eventIdOrSlug: string,
+  payload: import('../types/order').OfflineBookingPayload
+): Promise<import('../types/order').AdminOrder> {
+  const response = await fetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/manual`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la création de la réservation manuelle';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
