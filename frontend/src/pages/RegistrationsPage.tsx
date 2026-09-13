@@ -13,7 +13,6 @@ import {
   Users,
   Layers,
   FileText,
-  Clock,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
@@ -459,13 +458,16 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
           </button>
           <button
             onClick={() => setStatusFilter('pending')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
               statusFilter === 'pending'
                 ? 'bg-white text-gray-900 shadow-xs'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
-            En attente ({stats?.pending_orders_count ?? 0})
+            <span>Transactions non abouties</span>
+            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">
+              {stats?.pending_orders_count ?? 0}
+            </span>
           </button>
         </div>
 
@@ -626,9 +628,12 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                           <span>Confirmé</span>
                         </span>
                       ) : ord.status === 'pending' ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-700">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>En attente</span>
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200"
+                          title={ord.is_offline ? "Règlement en attente d'encaissement" : "L'exposant n'a pas finalisé son paiement en ligne"}
+                        >
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                          <span>{ord.is_offline ? "Règlement en attente" : "Transaction non aboutie"}</span>
                         </span>
                       ) : (
                         <span className="text-[11px] font-bold text-gray-500 capitalize">
