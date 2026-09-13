@@ -19,10 +19,11 @@ import { RegistrationsPage } from './pages/RegistrationsPage';
 import { PublicEventPage } from './pages/PublicEventPage';
 import { ReservationPage } from './pages/ReservationPage';
 import { ConfirmationPage } from './pages/ConfirmationPage';
+import { CancellationPage } from './pages/CancellationPage';
 
 interface PublicRouteState {
   slug: string;
-  view: 'map' | 'reservation' | 'confirmation';
+  view: 'map' | 'reservation' | 'confirmation' | 'cancellation';
   orderId?: string;
 }
 
@@ -51,12 +52,22 @@ function parsePublicRoute(): PublicRouteState | null {
     const pathname = window.location.pathname;
 
     // 0. Pathname: /e/:slug/confirmation/:orderId
-    const confMatch = pathname.match(/^\/e\/([^/?#]+)\/confirmation\/([^/?#]+)(?:\?.*)?$/);
+    const confMatch = pathname.match(/^\/e\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (confMatch && confMatch[1] && confMatch[2]) {
       return {
         slug: decodeURIComponent(confMatch[1]),
         view: 'confirmation',
         orderId: decodeURIComponent(confMatch[2]),
+      };
+    }
+
+    // 0b. Pathname: /e/:slug/annulation/:orderId
+    const annMatch = pathname.match(/^\/e\/([^/?#]+)\/annulation\/([^/?#]+)\/?(?:\?.*)?$/);
+    if (annMatch && annMatch[1] && annMatch[2]) {
+      return {
+        slug: decodeURIComponent(annMatch[1]),
+        view: 'cancellation',
+        orderId: decodeURIComponent(annMatch[2]),
       };
     }
 
@@ -80,12 +91,20 @@ function parsePublicRoute(): PublicRouteState | null {
 
     // 3. Hash routing fallback
     const hash = window.location.hash;
-    const hashConfMatch = hash.match(/^#\/e\/([^/?#]+)\/confirmation\/([^/?#]+)(?:\?.*)?$/);
+    const hashConfMatch = hash.match(/^#\/e\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (hashConfMatch && hashConfMatch[1] && hashConfMatch[2]) {
       return {
         slug: decodeURIComponent(hashConfMatch[1]),
         view: 'confirmation',
         orderId: decodeURIComponent(hashConfMatch[2]),
+      };
+    }
+    const hashAnnMatch = hash.match(/^#\/e\/([^/?#]+)\/annulation\/([^/?#]+)\/?(?:\?.*)?$/);
+    if (hashAnnMatch && hashAnnMatch[1] && hashAnnMatch[2]) {
+      return {
+        slug: decodeURIComponent(hashAnnMatch[1]),
+        view: 'cancellation',
+        orderId: decodeURIComponent(hashAnnMatch[2]),
       };
     }
     const hashResMatch = hash.match(/^#\/e\/([^/]+)\/reservation\/?$/);
@@ -109,6 +128,13 @@ function parsePublicRoute(): PublicRouteState | null {
     if (slugParam) {
       const viewParam = params.get('view');
       const orderIdParam = params.get('orderId') || params.get('order_id') || undefined;
+      if (viewParam === 'annulation' || viewParam === 'cancellation' || (params.has('annulation') && orderIdParam)) {
+        return {
+          slug: slugParam,
+          view: 'cancellation',
+          orderId: orderIdParam,
+        };
+      }
       if (viewParam === 'confirmation' || orderIdParam) {
         return {
           slug: slugParam,
@@ -172,6 +198,16 @@ export const App: React.FC = () => {
       `/e/${encodeURIComponent(slug)}/confirmation/${encodeURIComponent(orderId)}?token=${encodeURIComponent(accessToken)}`
     );
     setPublicRoute({ slug, view: 'confirmation', orderId });
+  };
+
+  const navigateToCancellation = (slug: string, orderId: string, accessToken?: string) => {
+    const tokenQuery = accessToken ? `?token=${encodeURIComponent(accessToken)}` : '';
+    window.history.pushState(
+      {},
+      '',
+      `/e/${encodeURIComponent(slug)}/annulation/${encodeURIComponent(orderId)}${tokenQuery}`
+    );
+    setPublicRoute({ slug, view: 'cancellation', orderId });
   };
 
   const navigateHome = () => {
@@ -249,6 +285,19 @@ export const App: React.FC = () => {
   };
 
   if (publicRoute) {
+    if (publicRoute.view === 'cancellation' && publicRoute.orderId) {
+      return (
+        <CancellationPage
+          slug={publicRoute.slug}
+          orderId={publicRoute.orderId}
+          onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
+          onNavigateToConfirmation={(token) =>
+            navigateToConfirmation(publicRoute.slug, publicRoute.orderId!, token)
+          }
+          onNavigateHome={navigateHome}
+        />
+      );
+    }
     if (publicRoute.view === 'confirmation' && publicRoute.orderId) {
       return (
         <ConfirmationPage
@@ -256,6 +305,9 @@ export const App: React.FC = () => {
           orderId={publicRoute.orderId}
           onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
           onNavigateHome={navigateHome}
+          onNavigateToCancellation={(orderId, token) =>
+            navigateToCancellation(publicRoute.slug, orderId, token)
+          }
         />
       );
     }

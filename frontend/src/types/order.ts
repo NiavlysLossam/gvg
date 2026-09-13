@@ -36,12 +36,14 @@ export interface OrderOut {
   honor_declaration_accepted_at: string;
   total_price_cents: number;
   total_price: number;
-  status: 'pending' | 'pending_approval' | 'confirmed' | 'rejected' | 'refunded' | 'cancelled' | string;
+  status: 'pending' | 'pending_approval' | 'confirmed' | 'cancellation_requested' | 'rejected' | 'refunded' | 'cancelled' | string;
   payment_method: string;
   offline_payment_reference?: string | null;
-  admin_notes?: string | null;
   stripe_payment_intent_id?: string | null;
   access_token: string;
+  cancellation_reason?: string | null;
+  cancellation_comment?: string | null;
+  cancellation_requested_at?: string | null;
   items: BookingItemOut[];
   created_at?: string | null;
   updated_at?: string | null;
@@ -53,6 +55,41 @@ export interface PaymentIntentResponse {
   payment_intent_id: string;
   amount_cents: number;
   currency: string;
+}
+
+export interface CancellationRequestIn {
+  cancellation_reason: string;
+  cancellation_comment?: string;
+}
+
+export const CANCELLATION_REASONS: Record<string, { label: string; description: string }> = {
+  medical: {
+    label: 'Empêchement médical / Santé',
+    description: 'Maladie, accident, certificat médical...',
+  },
+  personal: {
+    label: 'Imprévu personnel ou familial',
+    description: 'Obligation familiale, impératif professionnel...',
+  },
+  weather: {
+    label: 'Météo / Transport / Logistique',
+    description: 'Panne de véhicule, intempéries, problème de transport...',
+  },
+  other: {
+    label: 'Autre motif',
+    description: 'Précisez la raison de votre demande ci-dessous (obligatoire)',
+  },
+};
+
+export const CANCELLATION_REASON_OPTIONS = Object.entries(CANCELLATION_REASONS).map(([id, val]) => ({
+  id,
+  label: val.label,
+  description: val.description,
+}));
+
+export function getCancellationReasonLabel(code?: string | null): string {
+  if (!code) return 'Non spécifié';
+  return CANCELLATION_REASONS[code]?.label || code;
 }
 
 export interface AdminOrder {
@@ -71,13 +108,16 @@ export interface AdminOrder {
   honor_declaration_accepted_at?: string | null;
   total_price_cents: number;
   total_price: number;
-  status: 'pending' | 'pending_approval' | 'confirmed' | 'rejected' | 'refunded' | 'cancelled' | string;
+  status: 'pending' | 'pending_approval' | 'confirmed' | 'cancellation_requested' | 'rejected' | 'refunded' | 'cancelled' | string;
   payment_method: 'stripe' | 'check' | 'cash' | 'other' | string;
   is_offline: boolean;
   offline_payment_reference?: string | null;
   admin_notes?: string | null;
   stripe_payment_intent_id?: string | null;
   access_token: string;
+  cancellation_reason?: string | null;
+  cancellation_comment?: string | null;
+  cancellation_requested_at?: string | null;
   items: BookingItemOut[];
   spot_labels: string[];
   created_at?: string | null;
@@ -107,6 +147,7 @@ export interface DashboardStats {
   pending_orders_count: number;
   offline_orders_count: number;
   pending_approval_orders_count?: number;
+  cancellation_requested_orders_count?: number;
 }
 
 export interface OrderApprovalAction {

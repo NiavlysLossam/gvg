@@ -20,7 +20,7 @@ from app.schemas.public import (
     CartSpotItem,
     CartResponse,
 )
-from app.schemas.order import GuestOrderCreate, OrderOut, PaymentIntentResponse
+from app.schemas.order import GuestOrderCreate, OrderOut, PaymentIntentResponse, CancellationRequestIn
 from app.services import stripe_service
 
 
@@ -720,5 +720,104 @@ def create_order_payment_intent(
         amount_cents=order.total_price_cents,
         currency="eur",
     )
+
+
+@router.post(
+    "/events/{slug}/orders/{order_id}/cancellation-request",
+    response_model=OrderOut,
+    summary="Submit a cancellation request for an order",
+)
+def submit_cancellation_request(
+    slug: str,
+    order_id: uuid.UUID,
+    payload: CancellationRequestIn,
+    token: Optional[str] = Query(None, description="Order access token"),
+    x_access_token: Optional[str] = Header(None, alias="X-Access-Token"),
+    db: Session = Depends(get_db),
+) -> OrderOut:
+    """
+    Public unauthenticated endpoint for exhibitors to request an order cancellation.
+    Secured by constant-time verification of the passwordless HMAC magic access_token.
+    Eligible for confirmed or pending_approval orders.
+    Spots remain reserved until formal organizer review and arbitration.
+    """
+    event = get_public_event_by_slug(db, slug)
+    access_token = (token or x_access_token or "").strip()
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Le jeton d'accès (token) est obligatoire pour demander une annulation",
+        )
+
+    order = (
+        db.query(Order)
+        .options(joinedload(Order.items).joinedload(BookingItem.spot))
+        .filter(
+            Order.id == order_id,
+            Order.event_id == event.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable",
+        )
+
+    if not secrets.compare_digest(order.access_token, access_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé : jeton de commande invalide",
+        )
+
+    # Idempotent return if already in cancellation_requested status
+    if order.status == "cancellation_requested":
+        return order
+
+    # Ineligible terminal states
+    if order.status in ("cancelled", "rejected", "refunded"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cette commande n'est plus modifiable.",
+        )
+
+    # Only confirmed (or pending_approval) orders are eligible
+    if order.status not in ("confirmed", "pending_approval"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cette commande ne peut pas faire l'objet d'une demande d'annulation (statut actuel : {order.status}).",
+        )
+
+    VALID_CANCELLATION_REASONS = {"medical", "personal", "weather", "other"}
+    reason = (payload.cancellation_reason or "").strip().lower()
+    if not reason or reason not in VALID_CANCELLATION_REASONS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Le motif d'annulation est obligatoire et doit être l'un des suivants : {', '.join(sorted(VALID_CANCELLATION_REASONS))}.",
+        )
+
+    comment = (
+        payload.cancellation_comment.strip()
+        if payload.cancellation_comment and payload.cancellation_comment.strip()
+        else None
+    )
+
+    if reason == "other" and not comment:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Une précision dans le commentaire est obligatoire pour le motif 'Autre'.",
+        )
+
+    order.status = "cancellation_requested"
+    order.cancellation_reason = reason
+    order.cancellation_comment = comment
+    order.cancellation_requested_at = datetime.now(timezone.utc)
+    order.updated_at = func.now()
+
+    db.commit()
+    db.refresh(order)
+
+    return order
 
 

@@ -73,12 +73,13 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         round((reserved_spots / total_spots) * 100, 1) if total_spots > 0 else 0.0
     )
 
-    # Revenues from confirmed orders
+    # Revenues from confirmed and cancellation_requested orders (awaiting arbitration)
+    revenue_statuses = ["confirmed", "cancellation_requested"]
     stripe_revenue_cents = (
         db.query(func.coalesce(func.sum(Order.total_price_cents), 0))
         .filter(
             Order.event_id == event.id,
-            Order.status == "confirmed",
+            Order.status.in_(revenue_statuses),
             Order.payment_method == "stripe",
         )
         .scalar()
@@ -89,7 +90,7 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         db.query(func.coalesce(func.sum(Order.total_price_cents), 0))
         .filter(
             Order.event_id == event.id,
-            Order.status == "confirmed",
+            Order.status.in_(revenue_statuses),
             Order.payment_method == "check",
         )
         .scalar()
@@ -100,7 +101,7 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         db.query(func.coalesce(func.sum(Order.total_price_cents), 0))
         .filter(
             Order.event_id == event.id,
-            Order.status == "confirmed",
+            Order.status.in_(revenue_statuses),
             Order.payment_method == "cash",
         )
         .scalar()
@@ -111,7 +112,7 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         db.query(func.coalesce(func.sum(Order.total_price_cents), 0))
         .filter(
             Order.event_id == event.id,
-            Order.status == "confirmed",
+            Order.status.in_(revenue_statuses),
             Order.payment_method == "other",
         )
         .scalar()
@@ -129,7 +130,7 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
     )
     confirmed_orders_count = (
         db.query(func.count(Order.id))
-        .filter(Order.event_id == event.id, Order.status == "confirmed")
+        .filter(Order.event_id == event.id, Order.status.in_(revenue_statuses))
         .scalar()
         or 0
     )
@@ -142,6 +143,12 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
     pending_approval_orders_count = (
         db.query(func.count(Order.id))
         .filter(Order.event_id == event.id, Order.status == "pending_approval")
+        .scalar()
+        or 0
+    )
+    cancellation_requested_orders_count = (
+        db.query(func.count(Order.id))
+        .filter(Order.event_id == event.id, Order.status == "cancellation_requested")
         .scalar()
         or 0
     )
@@ -179,6 +186,7 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
         pending_orders_count=pending_orders_count,
         offline_orders_count=offline_orders_count,
         pending_approval_orders_count=pending_approval_orders_count,
+        cancellation_requested_orders_count=cancellation_requested_orders_count,
     )
 
 
@@ -234,7 +242,9 @@ def list_event_orders(
             query = query.filter(Order.payment_method.in_(["check", "cash", "other"]))
         elif st in ("pending_approval", "to_validate"):
             query = query.filter(Order.status == "pending_approval")
-        elif st in ("confirmed", "pending", "rejected", "cancelled"):
+        elif st in ("cancellation_requested", "cancellations", "annulations"):
+            query = query.filter(Order.status == "cancellation_requested")
+        elif st in ("confirmed", "pending", "rejected", "cancelled", "refunded"):
             query = query.filter(Order.status == st)
 
     # Search filter
@@ -254,6 +264,8 @@ def list_event_orders(
                 Order.email.ilike(term),
                 Order.phone.ilike(term),
                 Order.order_number.ilike(term),
+                Order.cancellation_reason.ilike(term),
+                Order.cancellation_comment.ilike(term),
                 Order.id.in_(matching_spot_orders),
             )
         )

@@ -609,3 +609,35 @@ export async function rejectOrder(
 
   return response.json();
 }
+
+export async function submitCancellationRequest(
+  slug: string,
+  orderId: string,
+  accessToken: string,
+  payload: import('../types/order').CancellationRequestIn
+): Promise<import('../types/order').OrderOut> {
+  const response = await fetch(
+    `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}/cancellation-request?token=${encodeURIComponent(accessToken)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Access-Token': accessToken,
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = "Erreur lors de la soumission de la demande d'annulation";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}

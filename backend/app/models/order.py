@@ -98,6 +98,11 @@ class Order(Base):
         default=generate_access_token,
     )
 
+    # Cancellation request fields (Story 3.3)
+    cancellation_reason = Column(String(100), nullable=True)
+    cancellation_comment = Column(Text, nullable=True)
+    cancellation_requested_at = Column(DateTime(timezone=True), nullable=True)
+
     # Timestamps
     created_at = Column(
         DateTime(timezone=True),

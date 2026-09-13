@@ -137,6 +137,9 @@ class OrderOut(BaseModel):
     offline_payment_reference: Optional[str] = None
     stripe_payment_intent_id: Optional[str] = None
     access_token: str
+    cancellation_reason: Optional[str] = None
+    cancellation_comment: Optional[str] = None
+    cancellation_requested_at: Optional[datetime] = None
     items: List[BookingItemOut] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -167,9 +170,11 @@ class OrderOut(BaseModel):
                 "status": data.status,
                 "payment_method": data.payment_method,
                 "offline_payment_reference": getattr(data, "offline_payment_reference", None),
-                "admin_notes": getattr(data, "admin_notes", None),
                 "stripe_payment_intent_id": getattr(data, "stripe_payment_intent_id", None),
                 "access_token": data.access_token,
+                "cancellation_reason": getattr(data, "cancellation_reason", None),
+                "cancellation_comment": getattr(data, "cancellation_comment", None),
+                "cancellation_requested_at": getattr(data, "cancellation_requested_at", None),
                 "items": items,
                 "created_at": getattr(data, "created_at", None),
                 "updated_at": getattr(data, "updated_at", None),
@@ -273,6 +278,7 @@ class EventDashboardStats(BaseModel):
     pending_orders_count: int
     offline_orders_count: int
     pending_approval_orders_count: int = 0
+    cancellation_requested_orders_count: int = 0
 
 
 class OrderApprovalAction(BaseModel):
@@ -281,6 +287,48 @@ class OrderApprovalAction(BaseModel):
         max_length=1000,
         description="Motif optionnel du refus ou note d'approbation",
     )
+
+
+VALID_CANCELLATION_REASONS = {"medical", "personal", "weather", "other"}
+
+
+class CancellationRequestIn(BaseModel):
+    cancellation_reason: str = Field(
+        ...,
+        max_length=100,
+        description="Motif de la demande d'annulation (medical, personal, weather, other)",
+    )
+    cancellation_comment: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Commentaire explicatif de l'exposant",
+    )
+
+    @field_validator("cancellation_reason")
+    @classmethod
+    def validate_cancellation_reason(cls, v: str) -> str:
+        cleaned = (v or "").strip().lower()
+        if not cleaned:
+            raise ValueError("Le motif d'annulation est obligatoire.")
+        if cleaned not in VALID_CANCELLATION_REASONS:
+            raise ValueError(
+                f"Motif d'annulation invalide. Valeurs acceptées : {', '.join(sorted(VALID_CANCELLATION_REASONS))}."
+            )
+        return cleaned
+
+    @field_validator("cancellation_comment")
+    @classmethod
+    def clean_comment(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        return cleaned if cleaned else None
+
+    @model_validator(mode="after")
+    def validate_other_comment(self) -> "CancellationRequestIn":
+        if self.cancellation_reason == "other" and not self.cancellation_comment:
+            raise ValueError("Une précision dans le commentaire est obligatoire pour le motif 'autre'.")
+        return self
 
 
 class AdminOrderOut(BaseModel):
@@ -306,6 +354,9 @@ class AdminOrderOut(BaseModel):
     admin_notes: Optional[str] = None
     stripe_payment_intent_id: Optional[str] = None
     access_token: str
+    cancellation_reason: Optional[str] = None
+    cancellation_comment: Optional[str] = None
+    cancellation_requested_at: Optional[datetime] = None
     items: List[BookingItemOut] = []
     spot_labels: List[str] = []
     created_at: Optional[datetime] = None
@@ -354,6 +405,9 @@ class AdminOrderOut(BaseModel):
                 "admin_notes": getattr(data, "admin_notes", None),
                 "stripe_payment_intent_id": getattr(data, "stripe_payment_intent_id", None),
                 "access_token": data.access_token,
+                "cancellation_reason": getattr(data, "cancellation_reason", None),
+                "cancellation_comment": getattr(data, "cancellation_comment", None),
+                "cancellation_requested_at": getattr(data, "cancellation_requested_at", None),
                 "items": items,
                 "spot_labels": spot_labels,
                 "created_at": getattr(data, "created_at", None),

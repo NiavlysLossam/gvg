@@ -27,7 +27,7 @@ development_status:
   epic-3: in-progress
   3-1-tableau-de-bord-admin-saisie-manuelle-hors-ligne: done
   3-2-workflow-moderation-optionnelle-inscription: done
-  3-3-portail-demande-annulation-exposant: backlog
+  3-3-portail-demande-annulation-exposant: done
   3-4-arbitrage-remboursements-remboursement-groupe: backlog
   epic-3-retrospective: optional
 

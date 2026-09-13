@@ -23,7 +23,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
-import { AdminOrder, DashboardStats } from '../types/order';
+import { AdminOrder, DashboardStats, getCancellationReasonLabel } from '../types/order';
 import {
   fetchEventOrders,
   fetchEventDashboardStats,
@@ -59,7 +59,9 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   // Filters & Search
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [debouncedSearch, setDebouncedSearch] = useState<string>('');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'pending_approval' | 'confirmed' | 'offline' | 'pending' | 'rejected'>('all');
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'pending_approval' | 'confirmed' | 'offline' | 'cancellation_requested' | 'pending' | 'rejected'
+  >('all');
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('date');
@@ -293,7 +295,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-xs">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-gray-200 shadow-sm">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
@@ -331,7 +333,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               type="button"
               onClick={handleToggleModeration}
               disabled={updatingModeration}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-hidden ${
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
                 isModerated ? 'bg-emerald-600' : 'bg-gray-300'
               } ${updatingModeration ? 'opacity-50 cursor-not-allowed' : ''}`}
               title={
@@ -361,7 +363,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
 
           <button
             onClick={() => setIsModalOpen(true)}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-xs transition flex items-center gap-2"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition flex items-center gap-2"
           >
             <PlusCircle className="w-4 h-4" />
             <span>Saisie Hors-Ligne</span>
@@ -371,7 +373,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
 
       {/* Toast notification */}
       {toastMessage && (
-        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center justify-between shadow-xs animate-fade-in">
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 p-4 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
           <div className="flex items-center gap-2.5">
             <CheckCircle2 className="w-5 h-5 text-emerald-600" />
             <span className="text-sm font-medium">{toastMessage}</span>
@@ -387,7 +389,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
 
       {/* Error alert */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-center justify-between shadow-xs">
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-center justify-between shadow-sm">
           <div className="flex items-center gap-2.5">
             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
             <span className="text-sm font-medium">{error}</span>
@@ -399,7 +401,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
       )}
 
       {/* Jauge de remplissage épurée */}
-      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-xs space-y-3">
+      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-3">
         <div className="flex items-center justify-between">
           <div>
             <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
@@ -451,7 +453,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
       {/* KPI Cards Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Revenue */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
               Chiffre d'affaires total
@@ -471,7 +473,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
         </div>
 
         {/* Stripe Revenue */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
               En ligne (Stripe)
@@ -489,7 +491,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
         </div>
 
         {/* Offline Revenue */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-indigo-700">
               Hors-ligne (Guichet)
@@ -511,7 +513,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
         </div>
 
         {/* Total Registrations */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-xs flex flex-col justify-between">
+        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
           <div className="flex items-center justify-between">
             <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
               Exposants inscrits
@@ -532,14 +534,14 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
       </div>
 
       {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-xs flex flex-col sm:flex-row items-center justify-between gap-4">
+      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
         {/* Status Tabs */}
         <div className="flex items-center gap-1.5 p-1 bg-gray-100 rounded-xl w-full sm:w-auto overflow-x-auto">
           <button
             onClick={() => setStatusFilter('all')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
               statusFilter === 'all'
-                ? 'bg-white text-gray-900 shadow-xs'
+                ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
@@ -549,7 +551,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             onClick={() => setStatusFilter('pending_approval')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
               statusFilter === 'pending_approval'
-                ? 'bg-white text-amber-900 shadow-xs'
+                ? 'bg-white text-amber-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
@@ -569,17 +571,37 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             onClick={() => setStatusFilter('confirmed')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
               statusFilter === 'confirmed'
-                ? 'bg-white text-gray-900 shadow-xs'
+                ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
             Confirmés ({stats?.confirmed_orders_count ?? 0})
           </button>
           <button
+            onClick={() => setStatusFilter('cancellation_requested')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
+              statusFilter === 'cancellation_requested'
+                ? 'bg-white text-amber-900 shadow-sm'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5 text-amber-600" />
+            <span>Annulations demandées</span>
+            {(stats?.cancellation_requested_orders_count ?? 0) > 0 ? (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
+                {stats?.cancellation_requested_orders_count}
+              </span>
+            ) : (
+              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-200 text-gray-700">
+                0
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setStatusFilter('offline')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${
               statusFilter === 'offline'
-                ? 'bg-white text-indigo-900 shadow-xs'
+                ? 'bg-white text-indigo-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
@@ -592,7 +614,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             onClick={() => setStatusFilter('pending')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
               statusFilter === 'pending'
-                ? 'bg-white text-gray-900 shadow-xs'
+                ? 'bg-white text-gray-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
@@ -605,7 +627,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             onClick={() => setStatusFilter('rejected')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
               statusFilter === 'rejected'
-                ? 'bg-white text-red-900 shadow-xs'
+                ? 'bg-white text-red-900 shadow-sm'
                 : 'text-gray-500 hover:text-gray-900'
             }`}
           >
@@ -622,7 +644,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Rechercher nom, stand, email..."
-            className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
+            className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
           />
           {searchQuery && (
             <button
@@ -636,7 +658,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
       </div>
 
       {/* Orders Table */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-xs overflow-hidden">
+      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
         {loading && orders.length === 0 ? (
           <div className="py-20 text-center text-gray-500">
             <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-600" />
@@ -771,6 +793,14 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                           <CheckCircle2 className="w-3.5 h-3.5" />
                           <span>Confirmé</span>
                         </span>
+                      ) : ord.status === 'cancellation_requested' ? (
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300"
+                          title={`Annulation demandée par l'exposant${ord.cancellation_reason ? ` (Motif: ${ord.cancellation_reason})` : ''}`}
+                        >
+                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Annulation demandée</span>
+                        </span>
                       ) : ord.status === 'pending_approval' ? (
                         <span
                           className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300"
@@ -804,6 +834,15 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
 
                     {/* Notes & Ref */}
                     <td className="py-3.5 px-4 text-[11px] text-gray-500 max-w-[200px]">
+                      {ord.cancellation_reason && (
+                        <div
+                          className="font-semibold text-amber-800 truncate"
+                          title={`Motif: ${ord.cancellation_reason}${ord.cancellation_comment ? ` — « ${ord.cancellation_comment} »` : ''}`}
+                        >
+                          Annulation : {getCancellationReasonLabel(ord.cancellation_reason)}
+                          {ord.cancellation_comment && ` (${ord.cancellation_comment})`}
+                        </div>
+                      )}
                       {ord.offline_payment_reference && (
                         <div className="font-semibold text-gray-800">
                           Réf: {ord.offline_payment_reference}
@@ -814,7 +853,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                           « {ord.admin_notes} »
                         </div>
                       )}
-                      {!ord.offline_payment_reference && !ord.admin_notes && (
+                      {!ord.cancellation_reason && !ord.offline_payment_reference && !ord.admin_notes && (
                         <span className="text-gray-300">&mdash;</span>
                       )}
                     </td>
@@ -830,7 +869,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                               setModalError(null);
                             }}
                             disabled={actionLoadingId === ord.id}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-xs transition disabled:opacity-50"
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition disabled:opacity-50"
                             title="Valider l'inscription et capturer la pré-autorisation CB"
                           >
                             {actionLoadingId === ord.id ? (
@@ -869,7 +908,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
 
       {/* Approve Confirmation Modal */}
       {approveModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
             <div className="flex items-center gap-3 text-emerald-600">
               <div className="w-10 h-10 rounded-xl bg-emerald-50 flex items-center justify-center">
@@ -927,7 +966,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                 type="button"
                 onClick={handleApprove}
                 disabled={actionLoadingId === approveModalOrder.id}
-                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
               >
                 {actionLoadingId === approveModalOrder.id && (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
@@ -941,7 +980,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
 
       {/* Reject Confirmation Modal */}
       {rejectModalOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
             <div className="flex items-center gap-3 text-red-600">
               <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
@@ -985,7 +1024,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                 onChange={(e) => setRejectReason(e.target.value)}
                 placeholder="Ex. Dossier non conforme, pièce justificative manquante..."
                 rows={3}
-                className="w-full p-2.5 text-xs rounded-xl border border-gray-200 focus:outline-hidden focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
+                className="w-full p-2.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
               />
             </div>
 
@@ -1013,7 +1052,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                 type="button"
                 onClick={handleReject}
                 disabled={actionLoadingId === rejectModalOrder.id}
-                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition flex items-center gap-1.5 shadow-xs disabled:opacity-50"
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition flex items-center gap-1.5 shadow-sm disabled:opacity-50"
               >
                 {actionLoadingId === rejectModalOrder.id && (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
