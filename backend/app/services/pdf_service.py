@@ -1,5 +1,6 @@
 import re
 import logging
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -49,8 +50,10 @@ def format_address(order: Order) -> str:
     return ", ".join(parts)
 
 
-def natural_sort_key(s: str) -> list:
+def natural_sort_key(s: Optional[str]) -> list:
     """Natural alphanumeric sort key for spot labels (e.g. A01, A02, A10)."""
+    if not s:
+        return []
     return [int(text) if text.isdigit() else text.lower() for text in re.split(r"(\d+)", s)]
 
 
@@ -112,4 +115,173 @@ def generate_attestation_pdf(order: Order, event: Event) -> bytes:
     pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
 
     return pdf_bytes
+
+
+def french_alpha_sort_key(s: Optional[str]) -> tuple[str, str]:
+    """
+    Generate a sort key for French text: case-insensitive and accent-insensitive,
+    ensuring correct collation (e.g. 'Éric' sorts before 'François').
+    """
+    if not s:
+        return ("", "")
+    normalized = "".join(
+        c for c in unicodedata.normalize("NFD", s)
+        if unicodedata.category(c) != "Mn"
+    ).lower().strip()
+    return (normalized, s.lower().strip())
+
+
+def format_payment_status(order: Order) -> str:
+    """Format payment method/status into clear readable label."""
+    method_labels = {
+        "stripe": "Payé (CB)",
+        "cash": "Payé (Espèces)",
+        "check": "Payé (Chèque)",
+        "other": "Payé (Autre)",
+    }
+    return method_labels.get(order.payment_method, "Payé")
+
+
+def build_checkin_rows(orders: list[Order], sort_by: str = "spot") -> list[dict]:
+    """
+    Build structured rows for the official check-in sheet (PDF and Excel).
+    Filters exclusively for confirmed orders.
+    In 'spot' mode: expands multi-spot orders so each stall appears in natural alphanumeric order.
+    In 'alpha' mode: lists one entry per order with grouped spots, sorted alphabetically by exhibitor name.
+    """
+    confirmed_orders = [o for o in orders if o.status == "confirmed"]
+    rows: list[dict] = []
+
+    if sort_by == "spot":
+        for order in confirmed_orders:
+            assigned_items = [item for item in (order.items or []) if item.spot is not None]
+            if assigned_items:
+                for item in assigned_items:
+                    spot = item.spot
+                    meters = float(spot.linear_meters) if spot.linear_meters is not None else 0.0
+                    meters_str = f"{meters:.2f}".replace(".", ",") + " m"
+                    rows.append({
+                        "spot_label": spot.label or "Sans label",
+                        "linear_meters": meters,
+                        "linear_meters_str": meters_str,
+                        "full_name": order.full_name or "Non renseigné",
+                        "last_name": order.last_name or "",
+                        "first_name": order.first_name or "",
+                        "phone": order.phone or "—",
+                        "email": order.email or "—",
+                        "payment_status": format_payment_status(order),
+                        "payment_method": order.payment_method or "other",
+                        "order_number": order.order_number,
+                        "order": order,
+                    })
+            else:
+                rows.append({
+                    "spot_label": "Non attribué",
+                    "linear_meters": 0.0,
+                    "linear_meters_str": "0,00 m",
+                    "full_name": order.full_name or "Non renseigné",
+                    "last_name": order.last_name or "",
+                    "first_name": order.first_name or "",
+                    "phone": order.phone or "—",
+                    "email": order.email or "—",
+                    "payment_status": format_payment_status(order),
+                    "payment_method": order.payment_method or "other",
+                    "order_number": order.order_number,
+                    "order": order,
+                })
+
+        # Sort naturally by spot_label (e.g. A-1, A-2, A-10), with non-attributed at the end
+        rows.sort(key=lambda r: (
+            1 if r["spot_label"] == "Non attribué" else 0,
+            natural_sort_key(r["spot_label"]),
+            french_alpha_sort_key(r["last_name"]),
+            french_alpha_sort_key(r["first_name"]),
+        ))
+
+    else:
+        # sort_by == "alpha"
+        for order in confirmed_orders:
+            assigned_spots = [item.spot for item in (order.items or []) if item.spot is not None]
+            assigned_spots.sort(key=lambda s: natural_sort_key(s.label or ""))
+            if assigned_spots:
+                labels_str = ", ".join(s.label for s in assigned_spots if s.label)
+                total_meters = sum(float(s.linear_meters) for s in assigned_spots if s.linear_meters is not None)
+                meters_str = f"{total_meters:.2f}".replace(".", ",") + " m"
+            else:
+                labels_str = "Non attribué"
+                total_meters = 0.0
+                meters_str = "0,00 m"
+
+            rows.append({
+                "spot_label": labels_str,
+                "linear_meters": total_meters,
+                "linear_meters_str": meters_str,
+                "full_name": order.full_name or "Non renseigné",
+                "last_name": order.last_name or "",
+                "first_name": order.first_name or "",
+                "phone": order.phone or "—",
+                "email": order.email or "—",
+                "payment_status": format_payment_status(order),
+                "payment_method": order.payment_method or "other",
+                "order_number": order.order_number,
+                "order": order,
+            })
+
+        # Sort alphabetically by exhibitor last name, then first name
+        rows.sort(key=lambda r: (
+            french_alpha_sort_key(r["last_name"]),
+            french_alpha_sort_key(r["first_name"]),
+            natural_sort_key(r["spot_label"]),
+        ))
+
+    return rows
+
+
+def generate_checkin_pdf(event: Event, orders: list[Order], sort_by: str = "spot") -> bytes:
+    """
+    Generate an official check-in sheet (feuille d'émargement) PDF for event day.
+    Configured in A4 landscape with repeated table headers and check-in pen entry columns.
+    Returns raw PDF bytes directly from memory.
+    """
+    if sort_by not in ("spot", "alpha"):
+        sort_by = "spot"
+
+    rows = build_checkin_rows(orders=orders, sort_by=sort_by)
+    event_date_formatted = format_french_date(event.start_date)
+    total_meters = sum(r["linear_meters"] for r in rows)
+    total_linear_meters_formatted = f"{total_meters:.2f}".replace(".", ",") + " m"
+
+    mode_label = (
+        "Classement : Par Emplacement (N° Stand)"
+        if sort_by == "spot"
+        else "Classement : Par Ordre Alphabétique (Nom)"
+    )
+    sort_label = (
+        "Par Emplacement"
+        if sort_by == "spot"
+        else "Alphabétique"
+    )
+
+    now = datetime.now()
+    generation_date = f"{now.day:02d}/{now.month:02d}/{now.year} à {now.hour:02d}h{now.minute:02d}"
+
+    context = {
+        "event": event,
+        "rows": rows,
+        "sort_by": sort_by,
+        "sort_label": sort_label,
+        "mode_label": mode_label,
+        "event_date_formatted": event_date_formatted,
+        "total_rows": len(rows),
+        "total_linear_meters_formatted": total_linear_meters_formatted,
+        "generation_date": generation_date,
+    }
+
+    template = pdf_jinja_env.get_template("checkin.html")
+    html_content = template.render(**context)
+
+    # Compile HTML to PDF in memory using WeasyPrint
+    pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+    return pdf_bytes
+
 

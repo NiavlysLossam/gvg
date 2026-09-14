@@ -39,7 +39,7 @@ development_status:
 
   epic-5: in-progress
   5-1-generation-automatique-formulaire-attestation-pdf: done
-  5-2-export-feuille-emargement-officielle-pdf-excel: backlog
+  5-2-export-feuille-emargement-officielle-pdf-excel: done
   5-3-scripts-deploiement-docker-compose-install-ubuntu: backlog
   epic-5-retrospective: optional
 

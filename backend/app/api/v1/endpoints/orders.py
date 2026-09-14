@@ -22,7 +22,7 @@ from app.schemas.order import (
     BulkEventCancelResponse,
 )
 from app.schemas.email import EmailLogListResponse, EmailLogOut
-from app.services import stripe_service, email_service, pdf_service
+from app.services import stripe_service, email_service, pdf_service, excel_service
 
 router = APIRouter()
 
@@ -822,5 +822,89 @@ def download_admin_attestation_pdf(
             "Cache-Control": "private, no-store, must-revalidate",
         },
     )
+
+
+@router.get(
+    "/{id_or_slug}/checkin.pdf",
+    summary="Download official check-in sheet PDF (feuille d'émargement)",
+    response_class=Response,
+)
+def download_admin_checkin_pdf(
+    id_or_slug: str,
+    sort_by: str = Query("spot", description="Sorting mode: 'spot' (by stall number) or 'alpha' (by exhibitor name)"),
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Organizer endpoint to download the official check-in sheet (feuille d'émargement) PDF.
+    Only confirmed orders are included.
+    Supports sort_by='spot' (natural spot alphanumeric sort) or sort_by='alpha' (alphabetical by exhibitor name).
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+    if sort_by not in ("spot", "alpha"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le paramètre sort_by doit être 'spot' ou 'alpha'.",
+        )
+
+    orders = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.event_id == event.id, Order.status == "confirmed")
+        .all()
+    )
+
+    pdf_bytes = pdf_service.generate_checkin_pdf(event=event, orders=orders, sort_by=sort_by)
+    filename = f"emargement_{event.slug}_{sort_by}.pdf"
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "private, no-store, must-revalidate",
+        },
+    )
+
+
+@router.get(
+    "/{id_or_slug}/checkin.xlsx",
+    summary="Download official check-in sheet Excel workbook (feuille d'émargement)",
+    response_class=Response,
+)
+def download_admin_checkin_xlsx(
+    id_or_slug: str,
+    sort_by: str = Query("spot", description="Sorting mode: 'spot' or 'alpha'"),
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Organizer endpoint to download the official check-in sheet Excel workbook (.xlsx).
+    Only confirmed orders are included.
+    Generates two worksheets: 'Par Emplacement' and 'Par Nom (Alphabétique)',
+    with active sheet set according to sort_by.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+    if sort_by not in ("spot", "alpha"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Le paramètre sort_by doit être 'spot' ou 'alpha'.",
+        )
+
+    orders = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.event_id == event.id, Order.status == "confirmed")
+        .all()
+    )
+
+    xlsx_bytes = excel_service.generate_checkin_xlsx(event=event, orders=orders, sort_by=sort_by)
+    filename = f"emargement_{event.slug}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "private, no-store, must-revalidate",
+        },
+    )
+
 
 

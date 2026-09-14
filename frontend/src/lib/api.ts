@@ -838,4 +838,14 @@ export function getAdminAttestationPdfUrl(eventIdOrSlug: string, orderId: string
   return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/attestation.pdf`;
 }
 
+export function getAdminCheckinPdfUrl(eventIdOrSlug: string, sortBy: 'spot' | 'alpha' = 'spot'): string {
+  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/checkin.pdf?sort_by=${encodeURIComponent(sortBy)}`;
+}
+
+export function getAdminCheckinXlsxUrl(eventIdOrSlug: string, sortBy?: 'spot' | 'alpha'): string {
+  const query = sortBy ? `?sort_by=${encodeURIComponent(sortBy)}` : '';
+  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/checkin.xlsx${query}`;
+}
+
+
 

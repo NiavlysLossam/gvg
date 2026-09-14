@@ -25,6 +25,9 @@ import {
   AlertTriangle,
   Mail,
   Download,
+  ChevronDown,
+  FileSpreadsheet,
+  Printer,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
 import {
@@ -43,6 +46,8 @@ import {
   rejectCancellationRequest,
   cancelAndRefundAllEventOrders,
   getAdminAttestationPdfUrl,
+  getAdminCheckinPdfUrl,
+  getAdminCheckinXlsxUrl,
 } from '../lib/api';
 import { ManualBookingModal } from '../components/ManualBookingModal';
 import { RemindersCard } from '../components/RemindersCard';
@@ -106,6 +111,24 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   // Broadcast Modal & Row Selection
   const [isBroadcastModalOpen, setIsBroadcastModalOpen] = useState<boolean>(false);
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
+
+  // Check-in Export Dropdown
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState<boolean>(false);
+  const exportMenuRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+    if (isExportMenuOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isExportMenuOpen]);
 
   useEffect(() => {
     setIsModerated(event.manual_approval_required ?? false);
@@ -553,6 +576,93 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               </span>
             )}
           </button>
+
+          {/* Check-in Export Dropdown */}
+          <div className="relative" ref={exportMenuRef}>
+            <button
+              type="button"
+              onClick={() => setIsExportMenuOpen((prev) => !prev)}
+              className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition flex items-center gap-1.5 shadow-2xs"
+              title="Télécharger la feuille d'émargement officielle pour le jour J"
+              aria-expanded={isExportMenuOpen}
+              aria-haspopup="true"
+            >
+              <Printer className="w-4 h-4 text-emerald-600" />
+              <span>Émargement</span>
+              <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isExportMenuOpen && (
+              <div className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-gray-200 py-2 z-50">
+                <div className="px-3.5 py-2 border-b border-gray-100">
+                  <p className="text-xs font-bold text-gray-900">Feuille d'émargement officielle</p>
+                  <p className="text-[11px] text-gray-500">Prête à imprimer ou ouvrir sur tableur</p>
+                </div>
+
+                <div className="p-1 space-y-0.5">
+                  <a
+                    href={getAdminCheckinPdfUrl(event.slug || event.id, 'spot')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsExportMenuOpen(false)}
+                    className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-emerald-50 text-gray-800 transition group"
+                  >
+                    <div className="p-1.5 rounded-lg bg-emerald-100 text-emerald-700 group-hover:bg-emerald-200 mt-0.5">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-900 group-hover:text-emerald-800">
+                        PDF par emplacement (N° Stand)
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        Ordre naturel des allées (A-1, A-2, A-10)
+                      </div>
+                    </div>
+                  </a>
+
+                  <a
+                    href={getAdminCheckinPdfUrl(event.slug || event.id, 'alpha')}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setIsExportMenuOpen(false)}
+                    className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-emerald-50 text-gray-800 transition group"
+                  >
+                    <div className="p-1.5 rounded-lg bg-blue-100 text-blue-700 group-hover:bg-blue-200 mt-0.5">
+                      <FileText className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-900 group-hover:text-emerald-800">
+                        PDF alphabétique (Nom exposant)
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        Tri A → Z par nom et prénom d'exposant
+                      </div>
+                    </div>
+                  </a>
+
+                  <a
+                    href={getAdminCheckinXlsxUrl(event.slug || event.id)}
+                    download={`emargement_${event.slug || event.id}.xlsx`}
+                    onClick={() => setIsExportMenuOpen(false)}
+                    className="flex items-start gap-2.5 p-2 rounded-xl hover:bg-emerald-50 text-gray-800 transition group"
+                  >
+                    <div className="p-1.5 rounded-lg bg-green-100 text-green-700 group-hover:bg-green-200 mt-0.5">
+                      <FileSpreadsheet className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-gray-900 group-hover:text-emerald-800">
+                        Tableur Excel (.xlsx)
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        Classeur 2 onglets avec colonnes de pointage
+                      </div>
+                    </div>
+                  </a>
+                </div>
+              </div>
+            )}
+          </div>
+
 
           <button
             onClick={() => setIsModalOpen(true)}
