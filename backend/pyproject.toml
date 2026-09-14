@@ -22,7 +22,12 @@ dependencies = [
     "python-multipart>=0.0.9",
     "stripe>=15.0.0",
     "jinja2>=3.1.4",
+    "weasyprint>=62.0",
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
 
 [project.optional-dependencies]
 dev = [

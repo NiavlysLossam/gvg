@@ -24,6 +24,7 @@ import {
   RotateCcw,
   AlertTriangle,
   Mail,
+  Download,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
 import {
@@ -41,6 +42,7 @@ import {
   refundOrder,
   rejectCancellationRequest,
   cancelAndRefundAllEventOrders,
+  getAdminAttestationPdfUrl,
 } from '../lib/api';
 import { ManualBookingModal } from '../components/ManualBookingModal';
 import { RemindersCard } from '../components/RemindersCard';
@@ -1225,7 +1227,18 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                           </button>
                         </div>
                       ) : ord.status === 'confirmed' ? (
-                        <div className="flex items-center justify-end">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <a
+                            href={getAdminAttestationPdfUrl(event.slug || event.id, ord.id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download={`attestation_${ord.order_number}.pdf`}
+                            className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
+                            title="Télécharger l'attestation sur l'honneur PDF"
+                          >
+                            <Download className="w-3.5 h-3.5 text-gray-400" />
+                            <span>Attestation</span>
+                          </a>
                           <button
                             type="button"
                             onClick={() => {

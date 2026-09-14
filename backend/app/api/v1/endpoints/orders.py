@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks, Response
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import func, select, or_, and_
 
@@ -22,7 +22,7 @@ from app.schemas.order import (
     BulkEventCancelResponse,
 )
 from app.schemas.email import EmailLogListResponse, EmailLogOut
-from app.services import stripe_service, email_service
+from app.services import stripe_service, email_service, pdf_service
 
 router = APIRouter()
 
@@ -777,4 +777,50 @@ def list_order_emails(
         items=[EmailLogOut.model_validate(log) for log in logs],
         total=len(logs),
     )
+
+
+@router.get(
+    "/{id_or_slug}/orders/{order_id}/attestation.pdf",
+    summary="Download official sworn statement attestation PDF as an organizer",
+    response_class=Response,
+)
+def download_admin_attestation_pdf(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Organizer endpoint to download the official sworn statement (Attestation sur l'honneur) PDF
+    pursuant to Article L. 310-2 of the French Code de commerce.
+    Only confirmed orders are eligible.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug)
+    order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id, Order.event_id == event.id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    if order.status != "confirmed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"L'attestation sur l'honneur n'est délivrée qu'aux commandes confirmées (statut actuel : {order.status}).",
+        )
+
+    pdf_bytes = pdf_service.generate_attestation_pdf(order=order, event=event)
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="attestation_{order.order_number}.pdf"',
+            "Cache-Control": "private, no-store, must-revalidate",
+        },
+    )
+
 

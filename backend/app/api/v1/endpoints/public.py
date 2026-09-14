@@ -2,7 +2,7 @@ import uuid
 import secrets
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Header, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query, Header, status, BackgroundTasks, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, case, and_, or_, update, text, select
 
@@ -21,7 +21,7 @@ from app.schemas.public import (
     CartResponse,
 )
 from app.schemas.order import GuestOrderCreate, OrderOut, PaymentIntentResponse, CancellationRequestIn
-from app.services import stripe_service, email_service
+from app.services import stripe_service, email_service, pdf_service
 
 
 router = APIRouter()
@@ -842,5 +842,72 @@ def submit_cancellation_request(
     db.refresh(order)
 
     return order
+
+
+@router.get(
+    "/events/{slug}/orders/{order_id}/attestation.pdf",
+    summary="Download official sworn statement attestation PDF for a confirmed order",
+    response_class=Response,
+)
+def download_public_attestation_pdf(
+    slug: str,
+    order_id: uuid.UUID,
+    token: Optional[str] = Query(None, description="Order access token"),
+    x_access_token: Optional[str] = Header(None, alias="X-Access-Token"),
+    db: Session = Depends(get_db),
+) -> Response:
+    """
+    Public endpoint to download the official sworn statement (Attestation sur l'honneur) PDF
+    pursuant to Article L. 310-2 of the French Code de commerce.
+    Secured by constant-time verification of the passwordless HMAC magic access_token.
+    Only confirmed orders are eligible.
+    """
+    event = get_public_event_by_slug(db, slug)
+    access_token = (token or x_access_token or "").strip()
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé : jeton de commande manquant",
+        )
+
+    order = (
+        db.query(Order)
+        .options(joinedload(Order.items).joinedload(BookingItem.spot))
+        .filter(
+            Order.id == order_id,
+            Order.event_id == event.id,
+        )
+        .first()
+    )
+
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable",
+        )
+
+    if not order.access_token or not secrets.compare_digest(order.access_token, access_token):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Accès refusé : jeton de commande invalide",
+        )
+
+    if order.status != "confirmed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"L'attestation sur l'honneur n'est délivrée qu'aux commandes confirmées (statut actuel : {order.status}).",
+        )
+
+    pdf_bytes = pdf_service.generate_attestation_pdf(order=order, event=event)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'inline; filename="attestation_{order.order_number}.pdf"',
+            "Cache-Control": "private, no-store, must-revalidate",
+        },
+    )
+
 
 

@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <title>Attestation sur l'honneur - {{ order.order_number }}</title>
+  <style>
+    @page {
+      size: A4 portrait;
+      margin: 10mm 12mm 8mm 12mm;
+      @bottom-center {
+        content: "Document officiel obligatoire - Article L. 310-2 du Code de commerce - Vide-greniers GVG";
+        font-size: 7.5pt;
+        color: #718096;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      color: #1a202c;
+      background-color: #ffffff;
+      font-size: 9pt;
+      line-height: 1.35;
+    }
+
+    .header-table {
+      width: 100%;
+      border-bottom: 2px solid #047857;
+      padding-bottom: 6px;
+      margin-bottom: 10px;
+    }
+
+    .title-block {
+      text-align: left;
+    }
+
+    .main-title {
+      font-size: 14pt;
+      font-weight: 800;
+      color: #065f46;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .sub-title {
+      font-size: 8.5pt;
+      color: #4b5563;
+      margin-top: 2px;
+      font-weight: 600;
+    }
+
+    .legal-badge {
+      text-align: right;
+      vertical-align: middle;
+    }
+
+    .badge-pill {
+      display: inline-block;
+      background-color: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      color: #065f46;
+      font-size: 8pt;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 6px;
+    }
+
+    .order-ref {
+      font-size: 8pt;
+      color: #4b5563;
+      margin-top: 3px;
+    }
+
+    .grid-2col {
+      width: 100%;
+      margin-bottom: 10px;
+      border-collapse: separate;
+      border-spacing: 8px 0;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .grid-col {
+      width: 50%;
+      vertical-align: top;
+      background-color: #f9fafb;
+      border: 1px solid #e5e7eb;
+      border-radius: 6px;
+      padding: 8px 10px;
+    }
+
+    .card-title {
+      font-size: 9pt;
+      font-weight: 700;
+      color: #1f2937;
+      border-bottom: 1px solid #e5e7eb;
+      padding-bottom: 3px;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.3px;
+    }
+
+    .info-row {
+      margin-bottom: 3px;
+      font-size: 8.5pt;
+    }
+
+    .info-label {
+      font-weight: 600;
+      color: #4b5563;
+      display: inline-block;
+      min-width: 95px;
+    }
+
+    .info-value {
+      color: #111827;
+      font-weight: 500;
+    }
+
+    .highlight-value {
+      font-weight: 700;
+      color: #065f46;
+    }
+
+    .legal-box {
+      border: 1.5px solid #047857;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background-color: #ffffff;
+      margin-bottom: 10px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .legal-title {
+      font-size: 9.5pt;
+      font-weight: 800;
+      color: #065f46;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+      text-align: center;
+      border-bottom: 1px dashed #a7f3d0;
+      padding-bottom: 4px;
+    }
+
+    .declaration-intro {
+      font-size: 8.5pt;
+      margin-bottom: 6px;
+      font-style: italic;
+    }
+
+    .legal-list {
+      margin-left: 16px;
+      margin-bottom: 6px;
+      font-size: 8pt;
+      line-height: 1.35;
+    }
+
+    .legal-list li {
+      margin-bottom: 4px;
+      color: #1f2937;
+    }
+
+    .penal-notice {
+      background-color: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 4px;
+      padding: 5px 8px;
+      font-size: 7.5pt;
+      color: #92400e;
+      line-height: 1.3;
+      margin-top: 4px;
+    }
+
+    .signatures-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 8px 0;
+      margin-bottom: 8px;
+      break-inside: avoid;
+      page-break-inside: avoid;
+    }
+
+    .signature-card {
+      width: 50%;
+      vertical-align: top;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background-color: #ffffff;
+      min-height: 115px;
+    }
+
+    .signature-card-title {
+      font-size: 8.5pt;
+      font-weight: 700;
+      color: #374151;
+      margin-bottom: 4px;
+      border-bottom: 1px solid #f3f4f6;
+      padding-bottom: 2px;
+    }
+
+    .signature-note {
+      font-size: 7pt;
+      color: #6b7280;
+      font-style: italic;
+      margin-bottom: 6px;
+    }
+
+    .signature-space {
+      height: 50px;
+    }
+
+    .control-box {
+      border: 1.5px solid #4b5563;
+      border-radius: 6px;
+      padding: 7px 10px;
+      background-color: #f9fafb;
+    }
+
+    .control-title {
+      font-size: 8.5pt;
+      font-weight: 800;
+      color: #1f2937;
+      text-transform: uppercase;
+      border-bottom: 1px solid #d1d5db;
+      padding-bottom: 3px;
+      margin-bottom: 5px;
+      letter-spacing: 0.3px;
+    }
+
+    .control-grid {
+      width: 100%;
+      font-size: 7.5pt;
+      border-collapse: collapse;
+    }
+
+    .control-grid td {
+      padding: 2px 4px;
+      vertical-align: middle;
+    }
+
+    .checkbox {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border: 1px solid #4b5563;
+      margin-right: 3px;
+      vertical-align: middle;
+    }
+
+    .dots {
+      display: inline-block;
+      border-bottom: 1px dotted #9ca3af;
+      width: 130px;
+      height: 12px;
+      vertical-align: bottom;
+    }
+
+    .dots-wide {
+      display: inline-block;
+      border-bottom: 1px dotted #9ca3af;
+      width: 220px;
+      height: 12px;
+      vertical-align: bottom;
+    }
+
+    .dots-full {
+      display: inline-block;
+      border-bottom: 1px dotted #9ca3af;
+      width: 95%;
+      height: 12px;
+      vertical-align: bottom;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Header -->
+  <table class="header-table">
+    <tr>
+      <td class="title-block">
+        <div class="main-title">Attestation sur l'Honneur</div>
+        <div class="sub-title">Participation des particuliers à une vente au déballage (Vide-Greniers)</div>
+      </td>
+      <td class="legal-badge">
+        <div class="badge-pill">Art. L. 310-2 Code de commerce</div>
+        <div class="order-ref">Réf. Commande : <strong>{{ order.order_number }}</strong></div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- 2-column info block: Manifestation & Exposant -->
+  <table class="grid-2col">
+    <tr>
+      <!-- Column 1: Événement & Emplacement -->
+      <td class="grid-col">
+        <div class="card-title">1. Manifestation & Emplacements</div>
+        <div class="info-row">
+          <span class="info-label">Événement :</span>
+          <span class="info-value"><strong>{{ event.title }}</strong></span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Date :</span>
+          <span class="info-value">{{ event_date_formatted }}</span>
+        </div>
+        {% if event.setup_start_time %}
+        <div class="info-row">
+          <span class="info-label">Installation :</span>
+          <span class="info-value">Dès {{ event.setup_start_time }}</span>
+        </div>
+        {% endif %}
+        <div class="info-row">
+          <span class="info-label">Lieu :</span>
+          <span class="info-value">{{ event.location_address or "Non spécifié" }}</span>
+        </div>
+        <div class="info-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e5e7eb;">
+          <span class="info-label">Stand(s) attribué(s) :</span>
+          <span class="highlight-value">{{ spots_formatted }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Métrage total :</span>
+          <span class="highlight-value">{{ total_linear_meters_formatted }}</span>
+        </div>
+      </td>
+
+      <!-- Column 2: Coordonnées de l'Exposant -->
+      <td class="grid-col">
+        <div class="card-title">2. Coordonnées de l'Exposant</div>
+        <div class="info-row">
+          <span class="info-label">Nom et prénom :</span>
+          <span class="info-value"><strong>{{ order.full_name }}</strong></span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Adresse :</span>
+          <span class="info-value">{{ address_formatted }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">Téléphone :</span>
+          <span class="info-value">{{ order.phone or "Non renseigné" }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-label">E-mail :</span>
+          <span class="info-value">{{ order.email or "Non renseigné" }}</span>
+        </div>
+        <div class="info-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #e5e7eb;">
+          <span class="info-label">Statut commande :</span>
+          <span class="info-value" style="color: #065f46; font-weight: 700;">Confirmée (réglée)</span>
+        </div>
+      </td>
+    </tr>
+  </table>
+
+  <!-- Legal declaration section -->
+  <div class="legal-box">
+    <div class="legal-title">Déclaration sur l'Honneur de Non-Participation Réglementaire</div>
+    <div class="declaration-intro">
+      Je soussigné(e), <strong>{{ order.full_name }}</strong>, déclare sur l'honneur :
+    </div>
+    <ul class="legal-list">
+      <li>
+        <strong>1.</strong> Ne pas être commerçant(e), n'avoir participé à aucune autre vente au déballage au cours de l'année civile en cours (<strong>{{ current_year }}</strong>), ou n'avoir participé qu'à une seule autre vente au déballage, conformément à l'article L. 310-2 du Code de commerce limitant la participation des particuliers à <strong>deux manifestations par an au maximum</strong>.
+      </li>
+      <li>
+        <strong>2.</strong> Ne proposer à la vente <strong>exclusivement que des objets personnels et usagés</strong> m'appartenant (Art. L. 310-2 du Code de commerce). La vente d'objets neufs, de stocks professionnels ou de fabrications artisanales est formellement prohibée.
+      </li>
+      <li>
+        <strong>3.</strong> M'engager à présenter obligatoirement aux organisateurs lors de mon arrivée sur le site une <strong>pièce d'identité originale et en cours de validité</strong> (Carte Nationale d'Identité ou Passeport), conformément à l'<strong>Article R. 310-8 du Code de commerce</strong>.
+      </li>
+      <li>
+        <strong>4.</strong> Avoir pris connaissance des règles de sécurité, de circulation et d'organisation de la manifestation fixées par les organisateurs.
+      </li>
+    </ul>
+    <div class="penal-notice">
+      <strong>Rappel des sanctions légales (Article 441-7 du Code pénal) :</strong> Est puni d'un an d'emprisonnement et de 15 000 euros d'amende le fait : 1° D'établir une attestation ou un certificat faisant état de faits matériellement inexacts ; 2° De falsifier une attestation ou un certificat originairement sincère ; 3° De faire usage d'une attestation ou d'un certificat inexact ou falsifié.
+    </div>
+  </div>
+
+  <!-- Signatures section -->
+  <table class="signatures-table">
+    <tr>
+      <!-- Participant Signature -->
+      <td class="signature-card">
+        <div class="signature-card-title">Signature de l'Exposant (Déclarant)</div>
+        <div class="info-row" style="margin-bottom: 2px;">
+          Fait à : {% if order.city %}<strong>{{ order.city }}</strong>{% else %}<span class="dots" style="width: 100px;"></span>{% endif %}, le : <span class="dots" style="width: 80px;"></span>
+        </div>
+        <div class="signature-note">
+          Faire précéder la signature de la mention manuscrite « <em>Lu et approuvé</em> » :
+        </div>
+        <div class="signature-space"></div>
+      </td>
+
+      <!-- Control / Placiers Box -->
+      <td class="signature-card" style="background-color: #f9fafb; border-color: #4b5563;">
+        <div class="signature-card-title" style="color: #111827;">Cadre réservé à l'Organisateur / Placier (Jour J)</div>
+        <div style="font-size: 7.5pt; color: #374151; margin-bottom: 3px;">
+          Contrôle d'identité physique obligatoire à l'arrivée (Art. R. 310-8) :
+        </div>
+        <table class="control-grid">
+          <tr>
+            <td colspan="2">
+              <span class="checkbox"></span> CNI &nbsp;
+              <span class="checkbox"></span> Passeport &nbsp;
+              <span class="checkbox"></span> Titre séjour &nbsp;
+              <span class="checkbox"></span> Autre
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2">
+              N° Pièce : <span class="dots" style="width: 100px;"></span> &nbsp;
+              Délivrée le : <span class="dots" style="width: 100px;"></span>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2">Délivrée par : <span class="dots" style="width: 190px;"></span></td>
+          </tr>
+          <tr>
+            <td>Stand vérifié : <span class="dots" style="width: 60px;"></span></td>
+            <td>Heure : <span class="dots" style="width: 45px;"></span></td>
+          </tr>
+          <tr>
+            <td colspan="2">Visa / Signature du placier : <span class="dots" style="width: 140px;"></span></td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+
+</body>
+</html>

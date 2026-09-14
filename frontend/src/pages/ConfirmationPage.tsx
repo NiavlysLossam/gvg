@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { OrderOut, getCancellationReasonLabel } from '../types/order';
 import { PublicEventResponse } from '../types/public';
-import { fetchPublicOrder, fetchPublicEvent } from '../lib/api';
+import { fetchPublicOrder, fetchPublicEvent, getPublicAttestationPdfUrl } from '../lib/api';
 
 interface ConfirmationPageProps {
   slug: string;
@@ -643,13 +643,16 @@ export const ConfirmationPage: React.FC<ConfirmationPageProps> = ({
                 Conformément à l'art. L310-2 du Code de commerce, présentez ce document signé aux organisateurs le dimanche matin.
               </p>
             </div>
-            <button
-              onClick={() => window.print()}
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-sm transition flex items-center justify-center gap-2 cursor-pointer"
+            <a
+              href={getPublicAttestationPdfUrl(slug, order.id, accessToken)}
+              target="_blank"
+              rel="noopener noreferrer"
+              download={`attestation_${order.order_number}.pdf`}
+              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-sm transition flex items-center justify-center gap-2 cursor-pointer no-underline"
             >
               <Download className="w-3.5 h-3.5" />
-              <span>Imprimer / Télécharger</span>
-            </button>
+              <span>Télécharger mon attestation PDF</span>
+            </a>
           </div>
         )}
 

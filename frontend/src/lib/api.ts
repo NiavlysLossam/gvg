@@ -830,3 +830,12 @@ export async function sendBroadcastEmail(
   return response.json();
 }
 
+export function getPublicAttestationPdfUrl(slug: string, orderId: string, token: string): string {
+  return `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}/attestation.pdf?token=${encodeURIComponent(token)}`;
+}
+
+export function getAdminAttestationPdfUrl(eventIdOrSlug: string, orderId: string): string {
+  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/attestation.pdf`;
+}
+
+
