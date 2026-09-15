@@ -1,0 +1,67 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    container_name: gvg-db-prod
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-gvg}
+      POSTGRES_USER: ${POSTGRES_USER:-gvg}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gvg_secret}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gvg} -d ${POSTGRES_DB:-gvg}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: gvg-backend-prod
+    restart: always
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://${POSTGRES_USER:-gvg}:${POSTGRES_PASSWORD:-gvg_secret}@db:5432/${POSTGRES_DB:-gvg}}
+      ENVIRONMENT: production
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+    volumes:
+      - uploads_data_prod:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: gvg-frontend-builder
+    restart: "no"
+    command: sh -c "npm run build && cp -rf dist/* /usr/share/nginx/html/"
+    volumes:
+      - frontend_dist_prod:/usr/share/nginx/html
+
+  nginx:
+    image: nginx:alpine
+    container_name: gvg-nginx-prod
+    restart: always
+    ports:
+      - "80:80"
+    volumes:
+      - ./deploy/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - frontend_dist_prod:/usr/share/nginx/html:ro
+    depends_on:
+      backend:
+        condition: service_started
+      frontend:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data_prod:
+  uploads_data_prod:
+  frontend_dist_prod:
