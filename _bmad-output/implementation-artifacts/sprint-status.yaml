@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-13-2026 22:26
+last_updated: 09-15-2026 21:42
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -41,7 +41,7 @@ development_status:
   5-1-generation-automatique-formulaire-attestation-pdf: done
   5-2-export-feuille-emargement-officielle-pdf-excel: done
   5-3-scripts-deploiement-docker-compose-install-ubuntu: done
-  epic-5-retrospective: optional
+  epic-5-retrospective: done
 
 action_items:
   - id: "epic-1-retro-item-1-batch-delete-endpoint"
@@ -70,7 +70,7 @@ action_items:
     action: "Documenter et ajouter un log clair au démarrage si STRIPE_WEBHOOK_SECRET
       n'est pas configuré en production"
     owner: "Dev Backend"
-    status: open
+    status: done
     ref: "_bmad-output/implementation-artifacts/epic-2-retro-2026-09-13.md"
   - id: "epic-3-retro-item-5-extraire-les-modales-d-arbitrage-et-d-an"
     epic: 3
@@ -100,3 +100,24 @@ action_items:
     owner: "Dev Frontend"
     status: open
     ref: "_bmad-output/implementation-artifacts/epic-4-retro-2026-09-13.md"
+  - id: "epic-5-retro-item-9-configurer-rollupoptions-output-manualch"
+    epic: 5
+    action: "Configurer rollupOptions.output.manualChunks dans vite.config.ts pour
+      optimiser le découpage des bundles frontend sous les 500 kB"
+    owner: "Dev Frontend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-09-15.md"
+  - id: "epic-5-retro-item-10-extraire-les-modales-secondaires-de-regi"
+    epic: 5
+    action: "Extraire les modales secondaires de RegistrationsPage.tsx en composants
+      isolés"
+    owner: "Dev Frontend"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-09-15.md"
+  - id: "epic-5-retro-item-11-mettre-en-place-un-smoke-test-e2e-automa"
+    epic: 5
+    action: "Mettre en place un smoke test e2e automatisé du parcours d inscription
+      complet"
+    owner: "QA / Dev"
+    status: open
+    ref: "_bmad-output/implementation-artifacts/epic-5-retro-2026-09-15.md"
