@@ -251,6 +251,14 @@ def test_env_example_completeness_and_documentation():
     assert "SMTP" in content or "e-mails" in content or "emails" in content
 
 
+def test_cors_origins_parsing_comma_separated(monkeypatch):
+    """Vérifie que pydantic-settings gère les chaînes séparées par des virgules sans erreur JSON."""
+    monkeypatch.setenv("CORS_ORIGINS", "http://34.140.50.12,http://localhost:5173")
+    from app.core.config import Settings
+    s = Settings()
+    assert s.CORS_ORIGINS == ["http://34.140.50.12", "http://localhost:5173"]
+
+
 # ------------------------------------------------------------------------------
 # 5. Validation du Service Systemd
 # ------------------------------------------------------------------------------
