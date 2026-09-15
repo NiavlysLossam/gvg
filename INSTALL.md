@@ -394,3 +394,4 @@ sudo systemctl restart gvg.service
 Pour toute question, anomalie ou suggestion :
 - Consultez le code source et les issues sur le dépôt GitHub.
 - Consultez la documentation interactive des API sur `/docs` (Swagger UI).
+
