@@ -34,22 +34,23 @@ def upgrade() -> None:
     op.create_index('ix_users_role', 'users', ['role'])
 
     # 2. Add owner_id to events table with FK referencing users.id
-    op.add_column(
-        'events',
-        sa.Column(
-            'owner_id',
-            sa.Uuid(as_uuid=True),
-            sa.ForeignKey('users.id', ondelete='SET NULL'),
-            nullable=True,
+    with op.batch_alter_table('events') as batch_op:
+        batch_op.add_column(
+            sa.Column(
+                'owner_id',
+                sa.Uuid(as_uuid=True),
+                sa.ForeignKey('users.id', ondelete='SET NULL', name='fk_events_owner_id_users'),
+                nullable=True,
+            )
         )
-    )
-    op.create_index('ix_events_owner_id', 'events', ['owner_id'])
+        batch_op.create_index('ix_events_owner_id', ['owner_id'])
 
 
 def downgrade() -> None:
     # 1. Remove owner_id from events
-    op.drop_index('ix_events_owner_id', table_name='events')
-    op.drop_column('events', 'owner_id')
+    with op.batch_alter_table('events') as batch_op:
+        batch_op.drop_index('ix_events_owner_id')
+        batch_op.drop_column('owner_id')
 
     # 2. Drop users table
     op.drop_index('ix_users_role', table_name='users')
