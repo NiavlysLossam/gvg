@@ -8,9 +8,13 @@ import {
   AlertCircle,
   PenTool,
   Users,
+  Loader2,
 } from 'lucide-react';
 import { EventModel } from './types/event';
 import { fetchEvents, fetchEvent } from './lib/api';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { AdminHeader } from './components/AdminHeader';
+import { LoginPage } from './pages/LoginPage';
 import { EventForm } from './components/EventForm';
 import { EventCard } from './components/EventCard';
 import { MapCalibration } from './components/MapCalibration';
@@ -25,6 +29,21 @@ interface PublicRouteState {
   slug: string;
   view: 'map' | 'reservation' | 'confirmation' | 'cancellation';
   orderId?: string;
+}
+
+function parseLoginRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const pathname = window.location.pathname;
+    if (pathname === '/login' || pathname.startsWith('/login/')) return true;
+    const hash = window.location.hash;
+    if (hash === '#/login' || hash.startsWith('#/login')) return true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('login')) return true;
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 function parseAdminRoute(): { eventId: string; view: 'inscriptions' } | null {
@@ -155,7 +174,9 @@ function parsePublicRoute(): PublicRouteState | null {
 }
 
 
-export const App: React.FC = () => {
+const AppContent: React.FC = () => {
+  const { isAuthenticated, isLoading } = useAuth();
+  const [isLoginRoute, setIsLoginRoute] = useState<boolean>(parseLoginRoute());
   const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
   const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions'>('list');
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
@@ -166,6 +187,7 @@ export const App: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = () => {
+      setIsLoginRoute(parseLoginRoute());
       const pub = parsePublicRoute();
       setPublicRoute(pub);
       if (!pub) {
@@ -213,6 +235,7 @@ export const App: React.FC = () => {
   const navigateHome = () => {
     window.history.pushState({}, '', '/');
     setPublicRoute(null);
+    setIsLoginRoute(false);
   };
 
   const loadEvents = async () => {
@@ -246,10 +269,10 @@ export const App: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!publicRoute) {
+    if (!publicRoute && isAuthenticated) {
       loadEvents();
     }
-  }, [publicRoute]);
+  }, [publicRoute, isAuthenticated]);
 
   const handleCreated = (newEvent: EventModel) => {
     setEvents([newEvent, ...events]);
@@ -330,6 +353,45 @@ export const App: React.FC = () => {
     );
   }
 
+  if (isLoginRoute) {
+    if (isAuthenticated) {
+      window.history.pushState({}, '', '/');
+      setIsLoginRoute(false);
+    } else {
+      return (
+        <LoginPage
+          onSuccess={(redirect) => {
+            window.history.pushState({}, '', redirect || '/');
+            setIsLoginRoute(false);
+          }}
+          onNavigateHome={navigateHome}
+        />
+      );
+    }
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex flex-col items-center space-y-3">
+          <Loader2 className="w-8 h-8 text-emerald-600 animate-spin" />
+          <p className="text-sm font-medium text-gray-500">Chargement de votre session...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return (
+      <LoginPage
+        onSuccess={(redirect) => {
+          window.history.pushState({}, '', redirect || '/');
+          setIsLoginRoute(false);
+        }}
+        onNavigateHome={navigateHome}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -391,6 +453,13 @@ export const App: React.FC = () => {
               <PlusCircle className="w-4 h-4" />
               <span>Nouvel Événement</span>
             </button>
+
+            <AdminHeader
+              onLogout={() => {
+                window.history.pushState({}, '', '/login');
+                setIsLoginRoute(true);
+              }}
+            />
           </div>
         </div>
       </header>
@@ -528,6 +597,14 @@ export const App: React.FC = () => {
         </div>
       </footer>
     </div>
+  );
+};
+
+export const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

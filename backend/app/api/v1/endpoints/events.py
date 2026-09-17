@@ -10,6 +10,8 @@ from slugify import slugify
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.event import Event
+from app.models.user import User, UserRole
+from app.api.deps import get_current_user, check_event_ownership
 from app.schemas.event import (
     EventCreate,
     EventUpdate,
@@ -56,6 +58,7 @@ def generate_unique_slug(db: Session, title: str, exclude_event_id: Optional[uui
 def create_event(
     event_in: EventCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Event:
     """
     Create a new event with metadata, schedules, pricing, and initial draft status.
@@ -71,6 +74,7 @@ def create_event(
     event = Event(
         **event_data,
         slug=slug,
+        owner_id=current_user.id,
     )
     db.add(event)
     try:
@@ -93,12 +97,15 @@ def create_event(
 )
 def list_events(
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     status_filter: Optional[str] = Query(None, alias="status"),
 ) -> dict:
     """List events with pagination and optional filtering."""
     query = db.query(Event)
+    if current_user.role != UserRole.SUPER_ADMIN:
+        query = query.filter(Event.owner_id == current_user.id)
     if status_filter:
         query = query.filter(Event.status == status_filter)
     
@@ -115,6 +122,7 @@ def list_events(
 def get_event(
     id_or_slug: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Event:
     """Retrieve an event by its UUID identifier or public URL slug."""
     event: Optional[Event] = None
@@ -132,6 +140,7 @@ def get_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Event not found",
         )
+    check_event_ownership(event, current_user)
     return event
 
 
@@ -144,6 +153,7 @@ def update_event(
     id_or_slug: str,
     event_in: EventUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Event:
     """Update event metadata or configuration."""
     event: Optional[Event] = None
@@ -158,6 +168,7 @@ def update_event(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Event not found",
         )
+    check_event_ownership(event, current_user)
 
     update_data = event_in.model_dump(exclude_unset=True, exclude={"price_per_meter"})
     if "price_per_meter" in event_in.model_fields_set and event_in.price_per_meter is not None:
@@ -208,6 +219,7 @@ async def upload_background_image(
     id_or_slug: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Event:
     """
     Upload an indoor floorplan image (PNG, JPEG, WebP) up to 10 MB.
@@ -226,6 +238,7 @@ async def upload_background_image(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Event not found",
         )
+    check_event_ownership(event, current_user)
 
     ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB

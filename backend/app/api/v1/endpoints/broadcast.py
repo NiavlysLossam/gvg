@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.models.event import Event
 from app.models.order import Order
+from app.models.user import User
+from app.api.deps import get_current_user, check_event_ownership
 from app.schemas.broadcast import (
     BroadcastPreviewRequest,
     BroadcastPreviewResponse,
@@ -17,8 +19,12 @@ from app.services import broadcast_service
 router = APIRouter()
 
 
-def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
-    """Retrieve an event by UUID or slug, raising 404 if not found."""
+def get_event_by_id_or_slug(
+    db: Session,
+    id_or_slug: str,
+    current_user: Optional[User] = None,
+) -> Event:
+    """Retrieve an event by UUID or slug, raising 404 if not found and 403 if forbidden."""
     event: Optional[Event] = None
     try:
         val_uuid = uuid.UUID(id_or_slug)
@@ -31,6 +37,8 @@ def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Événement introuvable",
         )
+    if current_user is not None:
+        check_event_ownership(event, current_user)
     return event
 
 
@@ -43,12 +51,13 @@ def preview_broadcast(
     id_or_slug: str,
     payload: BroadcastPreviewRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> BroadcastPreviewResponse:
     """
     Renders live HTML and plain-text preview of an announcement email using actual
     event details and a sample exhibitor reservation.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     if event.status == "cancelled":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -78,13 +87,14 @@ def send_broadcast(
     background_tasks: BackgroundTasks,
     background: bool = Query(True, description="Whether to enqueue delivery via BackgroundTasks"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> BroadcastSendResponse:
     """
     Dispatches individualized broadcast emails with tag interpolation to confirmed exhibitors
     or sends a single test email to the organizer.
     Always asynchronous by default using FastAPI BackgroundTasks.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     if event.status == "cancelled":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

@@ -9,6 +9,8 @@ from app.core.database import get_db
 from app.models.event import Event
 from app.models.spot import Spot
 from app.models.order import Order, BookingItem
+from app.models.user import User
+from app.api.deps import get_current_user, check_event_ownership
 from app.schemas.spot import (
     SpotCreate,
     SpotUpdate,
@@ -26,8 +28,12 @@ from app.schemas.spot import (
 router = APIRouter()
 
 
-def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
-    """Retrieve an event by UUID or slug, raising 404 if not found."""
+def get_event_by_id_or_slug(
+    db: Session,
+    id_or_slug: str,
+    current_user: Optional[User] = None,
+) -> Event:
+    """Retrieve an event by UUID or slug, check ownership, raising 404 if not found or 403 if forbidden."""
     event: Optional[Event] = None
     try:
         val_uuid = uuid.UUID(id_or_slug)
@@ -40,6 +46,8 @@ def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Événement introuvable",
         )
+    if current_user is not None:
+        check_event_ownership(event, current_user)
     return event
 
 
@@ -51,9 +59,10 @@ def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
 def list_spots(
     id_or_slug: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SpotFeatureCollection:
     """Retrieve all stalls for the specified event in GeoJSON format."""
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     order_payment_method = (
         select(Order.payment_method)
@@ -88,12 +97,13 @@ def create_spot(
     id_or_slug: str,
     spot_in: SpotCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SpotFeature:
     """
     Create a new stall spot with geometry, label, and linear meters.
     Automatically computes price_cents based on event price_per_meter_cents if not manually overridden.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     # Compute price in cents if not provided or overridden
     if spot_in.price_cents is not None:
@@ -143,12 +153,13 @@ def batch_create_spots(
     id_or_slug: str,
     batch_in: SpotBatchCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SpotBatchCreateResponse:
     """
     Create N spots atomically in a single database transaction.
     If any label collides with an existing spot or within the batch, rolls back completely and returns HTTP 409.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     # Check for duplicate labels within the batch payload itself
     seen_labels = set()
@@ -248,12 +259,13 @@ def batch_renumber_spots(
     id_or_slug: str,
     renumber_in: SpotBatchRenumber,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SpotBatchRenumberResponse:
     """
     Renumber spots atomically using a two-phase update to avoid intermediate unique constraint violations.
     Rolls back completely if any conflict occurs or if a spot does not belong to the event.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     # 1. Resolve pairs of (spot_id, target_label)
     pairs: List[tuple[uuid.UUID, str]] = []
@@ -375,9 +387,10 @@ def get_spot(
     id_or_slug: str,
     spot_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SpotFeature:
     """Retrieve details and geometry for a single spot."""
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     order_payment_method = (
         select(Order.payment_method)
@@ -418,12 +431,13 @@ def update_spot(
     spot_id: uuid.UUID,
     spot_in: SpotUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> SpotFeature:
     """
     Update spot label, linear meters, price override, status, or geometry.
     If linear_meters is updated without specifying price_cents, price_cents is recalculated.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     spot = db.query(Spot).filter(Spot.id == spot_id, Spot.event_id == event.id).first()
     if not spot:
@@ -499,9 +513,10 @@ def delete_spot(
     id_or_slug: str,
     spot_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     """Delete a spot by ID."""
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     spot = db.query(Spot).filter(Spot.id == spot_id, Spot.event_id == event.id).first()
     if not spot:

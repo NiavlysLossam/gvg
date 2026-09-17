@@ -10,6 +10,8 @@ from app.models.event import Event
 from app.models.spot import Spot
 from app.models.order import Order, BookingItem
 from app.models.email_log import EmailLog
+from app.models.user import User
+from app.api.deps import get_current_user, check_event_ownership
 from app.schemas.order import (
     OfflineOrderCreate,
     EventDashboardStats,
@@ -27,8 +29,12 @@ from app.services import stripe_service, email_service, pdf_service, excel_servi
 router = APIRouter()
 
 
-def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
-    """Retrieve an event by UUID or slug, raising 404 if not found."""
+def get_event_by_id_or_slug(
+    db: Session,
+    id_or_slug: str,
+    current_user: Optional[User] = None,
+) -> Event:
+    """Retrieve an event by UUID or slug, raising 404 if not found and 403 if forbidden."""
     event: Optional[Event] = None
     try:
         val_uuid = uuid.UUID(id_or_slug)
@@ -41,6 +47,8 @@ def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Événement introuvable",
         )
+    if current_user is not None:
+        check_event_ownership(event, current_user)
     return event
 
 
@@ -218,9 +226,10 @@ def compute_dashboard_stats(db: Session, event: Event) -> EventDashboardStats:
 def get_dashboard_stats(
     id_or_slug: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EventDashboardStats:
     """Returns real-time occupancy and revenue stats (Stripe vs Offline) for an event."""
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     return compute_dashboard_stats(db, event)
 
 
@@ -243,9 +252,10 @@ def list_event_orders(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AdminOrderListResponse:
     """Retrieve orders for the event with optional status filter and instant search."""
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     query = (
         db.query(Order)
@@ -313,13 +323,14 @@ def create_manual_booking(
     payload: OfflineOrderCreate,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AdminOrderOut:
     """
     Create a manual offline booking without Stripe.
     Atomically transitions the selected spots to 'reserved' and records payment method (check, cash, other).
     Rejects with 409 Conflict if any selected spot is already reserved, blocked, or actively locked.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     if event.status == "cancelled":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -436,12 +447,13 @@ def approve_order(
     background_tasks: BackgroundTasks,
     payload: Optional[OrderApprovalAction] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AdminOrderOut:
     """
     Approve an exhibitor order currently in 'pending_approval' status.
     Captures authorized funds in Stripe, confirms the order, and keeps spots reserved.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     order_query = (
         db.query(Order)
@@ -503,13 +515,14 @@ def reject_order(
     background_tasks: BackgroundTasks,
     payload: Optional[OrderApprovalAction] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AdminOrderOut:
     """
     Reject an exhibitor order currently in 'pending_approval' status.
     Cancels pre-authorization in Stripe without debiting, marks order as 'rejected',
     and immediately releases stalls back to 'available'.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     order_query = (
         db.query(Order)
@@ -571,6 +584,7 @@ def refund_order(
     background_tasks: BackgroundTasks,
     payload: Optional[OrderRefundAction] = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AdminOrderOut:
     """
     Refund an order for an event.
@@ -579,7 +593,7 @@ def refund_order(
     - Releases associated spots back to 'available'.
     - Idempotent: returns 200 without duplicate Stripe calls if already refunded.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     order_query = (
         db.query(Order)
@@ -640,6 +654,7 @@ def reject_cancellation(
     background_tasks: BackgroundTasks,
     payload: OrderRejectCancellationAction,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> AdminOrderOut:
     """
     Reject an exhibitor's cancellation request for a confirmed order.
@@ -648,7 +663,7 @@ def reject_cancellation(
     - Spots remain 'reserved'.
     - Reason is archived in admin_notes.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     order_query = (
         db.query(Order)
@@ -699,6 +714,7 @@ def cancel_and_refund_all(
     payload: BulkEventCancelIn,
     background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> BulkEventCancelResponse:
     """
     Cancel the entire event with double-confirmation protection.
@@ -709,7 +725,7 @@ def cancel_and_refund_all(
     - Enqueues event cancellation notification email to all exhibitors.
     - Returns execution report.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
 
     conf = payload.confirmation.strip()
     valid_confs = {"confirmer", "annuler", event.title.strip().lower()}
@@ -756,9 +772,10 @@ def list_order_emails(
     id_or_slug: str,
     order_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> EmailLogListResponse:
     """Retrieve audit history of emails sent (or simulated/failed) for this order."""
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     order = db.query(Order).filter(Order.id == order_id, Order.event_id == event.id).first()
     if not order:
         raise HTTPException(
@@ -788,13 +805,14 @@ def download_admin_attestation_pdf(
     id_or_slug: str,
     order_id: uuid.UUID,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     """
     Organizer endpoint to download the official sworn statement (Attestation sur l'honneur) PDF
     pursuant to Article L. 310-2 of the French Code de commerce.
     Only confirmed orders are eligible.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     order = (
         db.query(Order)
         .options(selectinload(Order.items).selectinload(BookingItem.spot))
@@ -833,13 +851,14 @@ def download_admin_checkin_pdf(
     id_or_slug: str,
     sort_by: str = Query("spot", description="Sorting mode: 'spot' (by stall number) or 'alpha' (by exhibitor name)"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     """
     Organizer endpoint to download the official check-in sheet (feuille d'émargement) PDF.
     Only confirmed orders are included.
     Supports sort_by='spot' (natural spot alphanumeric sort) or sort_by='alpha' (alphabetical by exhibitor name).
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     if sort_by not in ("spot", "alpha"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -874,6 +893,7 @@ def download_admin_checkin_xlsx(
     id_or_slug: str,
     sort_by: str = Query("spot", description="Sorting mode: 'spot' or 'alpha'"),
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> Response:
     """
     Organizer endpoint to download the official check-in sheet Excel workbook (.xlsx).
@@ -881,7 +901,7 @@ def download_admin_checkin_xlsx(
     Generates two worksheets: 'Par Emplacement' and 'Par Nom (Alphabétique)',
     with active sheet set according to sort_by.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     if sort_by not in ("spot", "alpha"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -905,6 +925,3 @@ def download_admin_checkin_xlsx(
             "Cache-Control": "private, no-store, must-revalidate",
         },
     )
-
-
-

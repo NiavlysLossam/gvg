@@ -106,6 +106,7 @@ class EventUpdate(BaseModel):
 class EventResponse(EventBase):
     id: uuid.UUID
     slug: str
+    owner_id: Optional[uuid.UUID] = None
     price_per_meter_cents: int
     price_per_meter: float = Field(..., description="Prix par mètre en euros")
     stripe_account_id: Optional[str] = None

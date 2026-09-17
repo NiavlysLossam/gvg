@@ -3,8 +3,10 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
 
+from app.api.deps import check_event_ownership, get_current_user
 from app.core.database import get_db
 from app.models.event import Event
+from app.models.user import User
 from app.schemas.reminder import (
     ReminderStatusResponse,
     ReminderTriggerAction,
@@ -17,8 +19,10 @@ router = APIRouter()
 system_router = APIRouter()
 
 
-def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
-    """Retrieve an event by UUID or slug, raising 404 if not found."""
+def get_event_by_id_or_slug(
+    db: Session, id_or_slug: str, current_user: Optional[User] = None
+) -> Event:
+    """Retrieve an event by UUID or slug, raising 404 if not found and verifying ownership."""
     event: Optional[Event] = None
     try:
         val_uuid = uuid.UUID(id_or_slug)
@@ -31,6 +35,8 @@ def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Événement introuvable",
         )
+    if current_user is not None:
+        check_event_ownership(event, current_user)
     return event
 
 
@@ -42,12 +48,13 @@ def get_event_by_id_or_slug(db: Session, id_or_slug: str) -> Event:
 def get_reminders_status(
     id_or_slug: str,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ReminderStatusResponse:
     """
     Retrieve current days remaining before the event and delivery statistics
     for J-7 and J-2 automatic reminders.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user=current_user)
     try:
         return reminder_service.get_event_reminder_status(str(event.id), db=db)
     except ValueError as e:
@@ -65,6 +72,7 @@ def trigger_event_reminders(
     payload: Optional[ReminderTriggerAction] = None,
     background: bool = False,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ) -> ReminderTriggerResponse:
     """
     Trigger J-7 or J-2 reminder emails on demand for all confirmed exhibitors of an event.
@@ -72,7 +80,7 @@ def trigger_event_reminders(
     - Idempotent: orders that already received the reminder are skipped unless force=true.
     - If background=true, executes via FastAPI BackgroundTasks.
     """
-    event = get_event_by_id_or_slug(db, id_or_slug)
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user=current_user)
 
     reminder_type = payload.reminder_type if payload else None
     force = payload.force if payload else False

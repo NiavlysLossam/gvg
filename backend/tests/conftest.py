@@ -118,9 +118,63 @@ def db_session() -> Generator[Session, None, None]:
             Base.metadata.drop_all(bind=test_engine)
 
 
+class AuthTestClient(TestClient):
+    def __init__(self, *args, default_token: str = None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.default_token = default_token
+
+    def request(self, method: str, url: str, **kwargs):
+        headers = kwargs.get("headers")
+        if headers is None:
+            headers = {}
+        else:
+            headers = dict(headers)
+
+        if "Authorization" not in headers and "authorization" not in headers:
+            if headers.get("X-No-Auth") == "1":
+                headers.pop("X-No-Auth", None)
+            else:
+                url_str = str(url)
+                if not ("/api/v1/auth/" in url_str) and self.default_token:
+                    headers["Authorization"] = f"Bearer {self.default_token}"
+        elif headers.get("Authorization") is None:
+            headers.pop("Authorization", None)
+
+        kwargs["headers"] = headers
+        return super().request(method, url, **kwargs)
+
+
 @pytest.fixture(scope="function")
 def client(db_session: Session) -> Generator[TestClient, None, None]:
-    """Create a TestClient with overridden get_db dependency."""
+    """Create a TestClient with overridden get_db dependency and default superadmin auth."""
+    from app.models.user import User, UserRole
+    from app.core.security import hash_password, create_access_token
+
+    # Ensure a default superadmin user exists for tests
+    default_superadmin = (
+        db_session.query(User)
+        .filter(User.email == "test_superadmin@example.com")
+        .first()
+    )
+    if not default_superadmin:
+        default_superadmin = User(
+            email="test_superadmin@example.com",
+            hashed_password=hash_password("SuperAdmin123!"),
+            role=UserRole.SUPER_ADMIN,
+            is_active=True,
+        )
+        db_session.add(default_superadmin)
+        db_session.commit()
+        db_session.refresh(default_superadmin)
+
+    default_token = create_access_token(
+        data={
+            "sub": str(default_superadmin.id),
+            "role": str(default_superadmin.role),
+            "email": default_superadmin.email,
+        }
+    )
+
     def override_get_db():
         try:
             yield db_session
@@ -128,7 +182,7 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
             pass
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    with AuthTestClient(app, default_token=default_token) as test_client:
         yield test_client
     app.dependency_overrides.clear()
 

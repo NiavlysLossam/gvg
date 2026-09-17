@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-17-2026 12:17
+last_updated: 09-17-2026 17:36
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -45,7 +45,7 @@ development_status:
 
   epic-6: in-progress
   6-1-modele-utilisateur-roles-api-auth-jwt: done
-  6-2-ecrans-connexion-securisation-frontend-scope-admin: ready-for-dev
+  6-2-ecrans-connexion-securisation-frontend-scope-admin: done
   6-3-console-super-admin-gestion-comptes-suppression-evenements: ready-for-dev
   epic-6-retrospective: optional
 

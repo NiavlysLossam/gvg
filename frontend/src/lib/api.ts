@@ -10,7 +10,81 @@ import {
   SpotBatchRenumberResponse,
 } from '../types/spot';
 
+import { LoginCredentials, LoginResponse, User } from '../types/auth';
+
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
+const TOKEN_KEY = 'gvg_access_token';
+
+export function getAuthToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+export function setAuthToken(token: string): void {
+  if (typeof window === 'undefined') return;
+  localStorage.setItem(TOKEN_KEY, token);
+}
+
+export function clearAuthToken(): void {
+  if (typeof window === 'undefined') return;
+  localStorage.removeItem(TOKEN_KEY);
+}
+
+export async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
+  const token = getAuthToken();
+  const headers = new Headers(options.headers || {});
+  if (token && !headers.has('Authorization')) {
+    headers.set('Authorization', `Bearer ${token}`);
+  }
+  const response = await fetch(url, { ...options, headers });
+  if (response.status === 401 && token) {
+    clearAuthToken();
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('gvg:auth:expired'));
+    }
+  }
+  return response;
+}
+
+export async function loginApi(credentials: LoginCredentials): Promise<LoginResponse> {
+  const response = await fetch(`${API_BASE}/auth/token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(credentials),
+  });
+
+  if (!response.ok) {
+    let detail = 'Identifiants invalides';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  const data: LoginResponse = await response.json();
+  setAuthToken(data.access_token);
+  return data;
+}
+
+export async function fetchCurrentUser(): Promise<User> {
+  const response = await authFetch(`${API_BASE}/auth/me`);
+  if (!response.ok) {
+    let detail = 'Impossible de charger les informations du compte';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
 
 export class ApiError extends Error {
   constructor(public status: number, public detail: string | Record<string, unknown>[]) {
@@ -20,7 +94,7 @@ export class ApiError extends Error {
 }
 
 export async function createEvent(data: EventCreateInput): Promise<EventModel> {
-  const response = await fetch(`${API_BASE}/events`, {
+  const response = await authFetch(`${API_BASE}/events`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -43,7 +117,7 @@ export async function createEvent(data: EventCreateInput): Promise<EventModel> {
 }
 
 export async function updateEvent(idOrSlug: string, data: EventUpdateInput): Promise<EventModel> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(idOrSlug)}`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(idOrSlug)}`, {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -69,7 +143,7 @@ export async function uploadBackgroundImage(eventIdOrSlug: string, file: File): 
   const formData = new FormData();
   formData.append('file', file);
 
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/background-image`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/background-image`, {
     method: 'POST',
     body: formData,
   });
@@ -89,7 +163,7 @@ export async function uploadBackgroundImage(eventIdOrSlug: string, file: File): 
 }
 
 export async function fetchEvents(): Promise<EventListResponse> {
-  const response = await fetch(`${API_BASE}/events`);
+  const response = await authFetch(`${API_BASE}/events`);
   if (!response.ok) {
     throw new Error('Erreur lors de la récupération des événements');
   }
@@ -97,7 +171,7 @@ export async function fetchEvents(): Promise<EventListResponse> {
 }
 
 export async function fetchEvent(idOrSlug: string): Promise<EventModel> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(idOrSlug)}`);
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(idOrSlug)}`);
   if (!response.ok) {
     throw new Error('Événement introuvable');
   }
@@ -114,7 +188,7 @@ export function getImageUrl(path?: string | null): string {
 }
 
 export async function fetchSpots(eventIdOrSlug: string): Promise<SpotFeatureCollection> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots`);
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots`);
   if (!response.ok) {
     let detail = 'Erreur lors de la récupération des emplacements';
     try {
@@ -129,7 +203,7 @@ export async function fetchSpots(eventIdOrSlug: string): Promise<SpotFeatureColl
 }
 
 export async function createSpot(eventIdOrSlug: string, data: SpotCreateInput): Promise<SpotFeature> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -156,7 +230,7 @@ export async function updateSpot(
   spotId: string,
   data: SpotUpdateInput
 ): Promise<SpotFeature> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/${encodeURIComponent(spotId)}`,
     {
       method: 'PATCH',
@@ -182,7 +256,7 @@ export async function updateSpot(
 }
 
 export async function deleteSpot(eventIdOrSlug: string, spotId: string): Promise<void> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/${encodeURIComponent(spotId)}`,
     {
       method: 'DELETE',
@@ -205,7 +279,7 @@ export async function createSpotsBatch(
   eventIdOrSlug: string,
   data: SpotBatchCreateInput
 ): Promise<SpotBatchCreateResponse> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/batch`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/batch`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -231,7 +305,7 @@ export async function renumberSpotsBatch(
   eventIdOrSlug: string,
   data: SpotBatchRenumberInput
 ): Promise<SpotBatchRenumberResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/batch-renumber`,
     {
       method: 'POST',
@@ -257,7 +331,7 @@ export async function renumberSpotsBatch(
 }
 
 export async function fetchPublicEvent(slug: string): Promise<import('../types/public').PublicEventResponse> {
-  const response = await fetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}`);
+  const response = await authFetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}`);
   if (!response.ok) {
     let detail = 'Événement introuvable';
     try {
@@ -272,7 +346,7 @@ export async function fetchPublicEvent(slug: string): Promise<import('../types/p
 }
 
 export async function fetchPublicSpots(slug: string): Promise<import('../types/public').PublicSpotFeatureCollection> {
-  const response = await fetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}/spots`);
+  const response = await authFetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}/spots`);
   if (!response.ok) {
     let detail = 'Erreur lors de la récupération des emplacements';
     try {
@@ -291,7 +365,7 @@ export async function lockSpot(
   spotId: string,
   sessionToken: string
 ): Promise<import('../types/public').CartResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/public/events/${encodeURIComponent(slug)}/spots/${encodeURIComponent(spotId)}/lock`,
     {
       method: 'POST',
@@ -322,7 +396,7 @@ export async function unlockSpot(
   spotId: string,
   sessionToken: string
 ): Promise<import('../types/public').CartResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/public/events/${encodeURIComponent(slug)}/spots/${encodeURIComponent(spotId)}/unlock`,
     {
       method: 'POST',
@@ -352,7 +426,7 @@ export async function fetchCart(
   slug: string,
   sessionToken: string
 ): Promise<import('../types/public').CartResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/public/events/${encodeURIComponent(slug)}/cart?session_token=${encodeURIComponent(sessionToken)}`,
     {
       headers: {
@@ -379,7 +453,7 @@ export async function createGuestOrder(
   slug: string,
   payload: import('../types/order').GuestOrderCreate
 ): Promise<import('../types/order').OrderOut> {
-  const response = await fetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}/orders`, {
+  const response = await authFetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}/orders`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -407,7 +481,7 @@ export async function fetchPublicOrder(
   orderId: string,
   accessToken: string
 ): Promise<import('../types/order').OrderOut> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}?token=${encodeURIComponent(accessToken)}`,
     {
       headers: {
@@ -435,7 +509,7 @@ export async function createPaymentIntent(
   orderId: string,
   accessToken: string
 ): Promise<import('../types/order').PaymentIntentResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}/payment-intent?token=${encodeURIComponent(accessToken)}`,
     {
       method: 'POST',
@@ -482,7 +556,7 @@ export async function fetchEventOrders(
   }
 
   const queryString = params.toString() ? `?${params.toString()}` : '';
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders${queryString}`
   );
 
@@ -503,7 +577,7 @@ export async function fetchEventOrders(
 export async function fetchEventDashboardStats(
   eventIdOrSlug: string
 ): Promise<import('../types/order').DashboardStats> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/dashboard-stats`
   );
 
@@ -525,7 +599,7 @@ export async function createManualBooking(
   eventIdOrSlug: string,
   payload: import('../types/order').OfflineBookingPayload
 ): Promise<import('../types/order').AdminOrder> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/manual`,
     {
       method: 'POST',
@@ -555,7 +629,7 @@ export async function approveOrder(
   orderId: string,
   payload?: import('../types/order').OrderApprovalAction
 ): Promise<import('../types/order').AdminOrder> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/approve`,
     {
       method: 'POST',
@@ -585,7 +659,7 @@ export async function rejectOrder(
   orderId: string,
   payload?: import('../types/order').OrderApprovalAction
 ): Promise<import('../types/order').AdminOrder> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/reject`,
     {
       method: 'POST',
@@ -616,7 +690,7 @@ export async function submitCancellationRequest(
   accessToken: string,
   payload: import('../types/order').CancellationRequestIn
 ): Promise<import('../types/order').OrderOut> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/public/events/${encodeURIComponent(slug)}/orders/${encodeURIComponent(orderId)}/cancellation-request?token=${encodeURIComponent(accessToken)}`,
     {
       method: 'POST',
@@ -647,7 +721,7 @@ export async function refundOrder(
   orderId: string,
   payload?: import('../types/order').OrderRefundAction
 ): Promise<import('../types/order').AdminOrder> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/refund`,
     {
       method: 'POST',
@@ -677,7 +751,7 @@ export async function rejectCancellationRequest(
   orderId: string,
   payload: import('../types/order').OrderRejectCancellationAction
 ): Promise<import('../types/order').AdminOrder> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/reject-cancellation`,
     {
       method: 'POST',
@@ -706,7 +780,7 @@ export async function cancelAndRefundAllEventOrders(
   eventIdOrSlug: string,
   payload: import('../types/order').BulkEventCancelIn
 ): Promise<import('../types/order').BulkEventCancelResponse> {
-  const response = await fetch(
+  const response = await authFetch(
     `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/cancel-and-refund-all`,
     {
       method: 'POST',
@@ -734,7 +808,7 @@ export async function cancelAndRefundAllEventOrders(
 export async function fetchEventReminderStatus(
   eventIdOrSlug: string
 ): Promise<import('../types/reminder').ReminderStatus> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/reminders/status`);
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/reminders/status`);
   if (!response.ok) {
     let detail = 'Erreur lors de la récupération du statut des rappels';
     try {
@@ -753,7 +827,7 @@ export async function triggerEventReminders(
   reminderType?: 'j7' | 'j2' | null,
   force: boolean = false
 ): Promise<import('../types/reminder').ReminderTriggerReport> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/reminders/trigger`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/reminders/trigger`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -782,7 +856,7 @@ export async function previewBroadcastEmail(
   eventIdOrSlug: string,
   payload: import('../types/broadcast').BroadcastPreviewRequest
 ): Promise<import('../types/broadcast').BroadcastPreviewResponse> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/broadcast/preview`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/broadcast/preview`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -808,7 +882,7 @@ export async function sendBroadcastEmail(
   eventIdOrSlug: string,
   payload: import('../types/broadcast').BroadcastSendRequest
 ): Promise<import('../types/broadcast').BroadcastSendResponse> {
-  const response = await fetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/broadcast/send`, {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/broadcast/send`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -835,15 +909,23 @@ export function getPublicAttestationPdfUrl(slug: string, orderId: string, token:
 }
 
 export function getAdminAttestationPdfUrl(eventIdOrSlug: string, orderId: string): string {
-  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/attestation.pdf`;
+  const token = getAuthToken();
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : '';
+  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/attestation.pdf${tokenQuery}`;
 }
 
 export function getAdminCheckinPdfUrl(eventIdOrSlug: string, sortBy: 'spot' | 'alpha' = 'spot'): string {
-  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/checkin.pdf?sort_by=${encodeURIComponent(sortBy)}`;
+  const token = getAuthToken();
+  const tokenParam = token ? `&token=${encodeURIComponent(token)}` : '';
+  return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/checkin.pdf?sort_by=${encodeURIComponent(sortBy)}${tokenParam}`;
 }
 
 export function getAdminCheckinXlsxUrl(eventIdOrSlug: string, sortBy?: 'spot' | 'alpha'): string {
-  const query = sortBy ? `?sort_by=${encodeURIComponent(sortBy)}` : '';
+  const token = getAuthToken();
+  const params = new URLSearchParams();
+  if (sortBy) params.set('sort_by', sortBy);
+  if (token) params.set('token', token);
+  const query = params.toString() ? `?${params.toString()}` : '';
   return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/checkin.xlsx${query}`;
 }
 

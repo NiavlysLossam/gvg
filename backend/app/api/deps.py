@@ -1,6 +1,6 @@
 import uuid
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Query, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from sqlalchemy.orm import Session
 import jwt
@@ -16,20 +16,27 @@ http_bearer = HTTPBearer(auto_error=False)
 
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    token_param: Optional[str] = Query(None, alias="token"),
     db: Session = Depends(get_db),
 ) -> User:
     """
-    Validate the Bearer access token and return the authenticated User.
+    Validate the Bearer access token or token query param and return the authenticated User.
     Raises HTTP 401 on missing, expired, or invalid tokens.
     """
-    if not credentials or credentials.scheme.lower() != "bearer":
+    raw_token = None
+    if credentials and credentials.scheme.lower() == "bearer":
+        raw_token = credentials.credentials
+    elif token_param:
+        raw_token = token_param
+
+    if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Authentication credentials were not provided",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = credentials.credentials
+    token = raw_token
     try:
         payload = decode_access_token(token)
         user_id_str: Optional[str] = payload.get("sub")
@@ -88,7 +95,7 @@ def check_event_ownership(
     """
     if current_user.role == UserRole.SUPER_ADMIN:
         return
-    if event.owner_id is not None and event.owner_id != current_user.id:
+    if event.owner_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to manage this event",
