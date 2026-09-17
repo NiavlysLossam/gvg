@@ -7,7 +7,7 @@ paradigm: 'Modular Layered Architecture (FastAPI Service-Repository + React Leaf
 scope: 'Global System Architecture (Backend, Frontend, PostGIS, Stripe, Deployment & Background Tasks)'
 status: final
 created: '2026-09-04'
-updated: '2026-09-04'
+updated: '2026-09-17'
 binds:
   - FR-1
   - FR-2
@@ -27,6 +27,14 @@ binds:
   - FR-16
   - FR-17
   - FR-18
+  - FR-19
+  - FR-20
+  - FR-21
+  - FR-22
+  - FR-23
+  - FR-24
+  - FR-25
+  - FR-26
   - NFR-1
   - NFR-2
   - NFR-3
@@ -137,6 +145,74 @@ stateDiagram-v2
      - Configuration du service démon **systemd** (`/etc/systemd/system/gvg.service`) gérant le process Uvicorn avec redémarrage automatique en cas de panne.
      - Configuration d'un bloc **Nginx** servant le build React statique sur `/` et relayant les requêtes API `/api` et `/docs` vers le port local `127.0.0.1:8000`.
 
+### AD-9 [ADOPTED] — Authentification Administrateur JWT & Contrôle d'Accès Basé sur les Rôles (RBAC)
+- **Binds:** `FR-19`
+- **Prevents:** L'accès non autorisé aux fonctions d'administration et l'interférence entre organisateurs différents.
+- **Rule:** 
+  1. Table `users` (`id UUID PRIMARY KEY`, `email VARCHAR UNIQUE`, `hashed_password VARCHAR`, `role VARCHAR` ['super_admin', 'event_admin'], `is_active BOOLEAN`, `created_at TIMESTAMPTZ`).
+  2. Hachage sécurisé avec `passlib[bcrypt]` ou `bcrypt`.
+  3. Tokens JWT signés (`HS256`, clé secrète `JWT_SECRET_KEY`, expiration configurable par défaut à 24h).
+  4. Table `events` liée à `users` via une clé étrangère `owner_id UUID REFERENCES users(id)`.
+  5. Rétrocompatibilité : migration Alembic avec valeur nullable initialement. Le script CLI `scripts/create_superadmin.py` initialise le premier compte Super-Admin et lui attribue automatiquement tous les événements pré-existants (`UPDATE events SET owner_id = super_admin.id WHERE owner_id IS NULL`).
+  6. Dépendances de sécurité FastAPI :
+     - `get_current_user` : valide le Bearer token HTTP.
+     - `require_super_admin` : vérifie que `user.role == 'super_admin'`.
+     - `require_event_owner(event_id)` : garantit que l'utilisateur est le propriétaire de l'événement (`event.owner_id == user.id`) ou possède le rôle `super_admin`. Sinon lève immédiatement une exception HTTP `403 Forbidden`.
+  7. Frontend React : Contexte d'authentification (`AuthContext`), persistance du token dans `localStorage`, intercepteur HTTP ajoutant `Authorization: Bearer <token>`, protection des routes `/admin/*` via `<ProtectedRoute />` et redirection automatique vers `/login`.
+
+### AD-10 [ADOPTED] — Moteur de Duplication Géométrique Vierge (Event Cloning Engine)
+- **Binds:** `FR-22`
+- **Prevents:** La copie involontaire de données transactionnelles (inscriptions, paiements) et l'altération des polygones spatiaux lors de la reconduction d'un événement.
+- **Rule:**
+  1. La duplication est exécutée dans une transaction SQL atomique unique (`db.begin()`).
+  2. Duplication de l'entité `Event` : nom suffixé (ex: "[Nom] - Copie"), nouveau `slug` unique calculé, conservation du `owner_id`, `map_type`, `background_image_url`, paramètres WMS, et `linear_meter_price_cents`. Statut forcé à `draft`, dates `start_date` et `end_date` réinitialisées à `NULL`.
+  3. Duplication intégrale des stands (`Spot`) : nouvelles clés primaires UUID, géométrie clonée à l'identique (polygones PostGIS conservés avec intégrité spatiale), allée, numéro de stand, métrage et tarifs de base.
+  4. Réinitialisation des statuts de tous les stands dupliqués à `available` (`locked_until = NULL`, `locked_by_token = NULL`).
+  5. Zéro copie des tables `orders`, `booking_items`, `refund_requests` et `email_logs`.
+
+### AD-11 [ADOPTED] — Support Cartographique des Flux WMS (IGN Géoplateforme & Saisie Libre)
+- **Binds:** `FR-23`
+- **Prevents:** La difficulté pour les associations de configurer les couches cartographiques officielles françaises tout en offrant une extensibilité complète pour les SIG communaux.
+- **Rule:**
+  1. Extension de la table `events` avec les colonnes : `wms_enabled BOOLEAN DEFAULT FALSE`, `wms_url VARCHAR`, `wms_layers VARCHAR`, `wms_format VARCHAR DEFAULT 'image/png'`, `wms_attribution VARCHAR`.
+  2. En mode géographique, Leaflet initialise dynamiquement la couche `L.tileLayer.wms(wms_url, { layers, format, transparent: true, version: '1.3.0', crs: L.CRS.EPSG3857, attribution })`.
+  3. Catalogue frontend de pré-sélections officielles françaises (sans clé API obligatoire via la Géoplateforme IGN `data.geopf.fr`) :
+     - *Orthophoto Aérienne IGN HR* (`https://data.geopf.fr/wms-r/wms`, couche `ORTHOIMAGERY.ORTHOPHOTOS`)
+     - *Plan IGN Topographique* (`https://data.geopf.fr/wms-r/wms`, couche `GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2`)
+     - *Parcelles Cadastrales* (`https://data.geopf.fr/wms-r/wms`, couche `CADASTRALPARCELS.PARCELLAIRE_EXPRESS`)
+     - *OpenStreetMap Standard*
+  4. Option de saisie libre d'une URL WMS avec spécification manuelle du nom de couche (`layers`) et validation de l'URL côté client.
+
+### AD-12 [ADOPTED] — Immuabilité Financière des Emplacements Réservés (Price Lock Invariant)
+- **Binds:** `FR-24`
+- **Prevents:** La modification tarifaire de stands après réservation, source d'écarts de caisse, d'incohérence comptable et de contestations d'exposants.
+- **Rule:**
+  1. Un stand est réputé "verrouillé financièrement" dès lors qu'il est associé à au moins un enregistrement `booking_items` lié à une commande au statut `pending` ou `confirmed`.
+  2. Contrôle backend strict : l'endpoint de mise à jour (`PATCH /api/v1/events/{id}/spots/{spot_id}` ou modification en masse) vérifie cette condition. Si le prix `price_cents` soumis diffère du prix enregistré et que le stand est réservé, l'API rejette immédiatement avec HTTP `400 Bad Request` (`{"detail": "Impossible de modifier le prix d'un stand ayant déjà fait l'objet d'une réservation", "code": "SPOT_PRICE_LOCKED"}`).
+  3. Côté frontend : L'inspecteur de propriétés Leaflet désactive le champ de saisie du tarif et affiche un badge informatif : `🔒 Prix verrouillé (réservation active)`.
+  4. Si la réservation est ultérieurement annulée et le stand remis en disponibilité, le prix redevient éditable.
+
+### AD-13 [ADOPTED] — Stockage Statique Hautes Performances des Affiches d'Événements (Quota 5 Mo)
+- **Binds:** `FR-21`, `FR-26`
+- **Prevents:** La saturation disque du serveur, le ralentissement de l'affichage public et la surcharge du serveur applicatif Python.
+- **Rule:**
+  1. Téléversement via endpoint dédié `POST /api/v1/events/{id}/poster` multipart/form-data.
+  2. Contrôles struits : types MIME autorisés `image/jpeg`, `image/png`, `image/webp`. Taille maximale contrôlée à la réception : 5 Mo (5 242 880 octets). Rejet HTTP `413 Payload Too Large` en cas de dépassement.
+  3. Stockage sur disque dans `/opt/gvg/backend/uploads/events/{id}/poster.{ext}`.
+  4. La colonne `events.poster_image_url` stocke le chemin relatif `/uploads/events/{id}/poster.{ext}`.
+  5. Nginx sert directement le répertoire `/uploads/` de manière statique avec en-têtes de cache HTTP (`Cache-Control: public, max-age=86400`) sans solliciter Uvicorn.
+
+### AD-14 [ADOPTED] — Découpage Modulaire par Onglets de la Gestion des Inscriptions
+- **Binds:** `FR-25`
+- **Prevents:** La surcharge cognitive de l'organisateur et la dégradation de maintenabilité du composant `RegistrationsPage.tsx`.
+- **Rule:**
+  1. La vue `RegistrationsPage.tsx` est découpée en 4 sous-composants autonomes régis par un query param URL (`?tab=orders|desk|moderation|communications`) :
+     - `OrdersTableTab` : liste paginée, recherche, filtres et ouverture de la fiche.
+     - `DeskRegistrationTab` : formulaire de saisie au guichet sur place.
+     - `ModerationLitigationTab` : arbitrage des annulations et remboursements.
+     - `CommunicationsTab` : diffusion d'e-mails groupés et suivi des relances.
+  2. Composant `RegistrationDetailDrawer` : fiche exposant avec édition de l'email/téléphone, bloc-notes interne (`organizer_internal_notes`) et bouton de réexpédition d'attestation (`POST /api/v1/events/{id}/orders/{order_id}/resend-confirmation`).
+
 ---
 
 ## Consistency Conventions
@@ -175,19 +251,35 @@ stateDiagram-v2
 
 ```mermaid
 erDiagram
+    USER ||--o{ EVENT : owns
     EVENT ||--o{ SPOT : contains
     EVENT ||--o{ ORDER : receives
     ORDER ||--o{ BOOKING_ITEM : includes
     SPOT ||--o| BOOKING_ITEM : allocated_to
     ORDER ||--o| REFUND_REQUEST : triggers
 
+    USER {
+        uuid id PK
+        string email UK
+        string hashed_password
+        string role "super_admin | event_admin"
+        boolean is_active
+        timestamp created_at
+    }
+
     EVENT {
         uuid id PK
+        uuid owner_id FK
         string title
         string slug UK
         string description
         string map_type "geographic | planar"
         string background_image_url
+        string poster_image_url
+        boolean wms_enabled
+        string wms_url
+        string wms_layers
+        string wms_format
         decimal linear_meter_price_cents
         timestamp start_date
         timestamp end_date
@@ -216,6 +308,7 @@ erDiagram
         string exhibitor_email
         string exhibitor_phone
         string exhibitor_address
+        string organizer_internal_notes "Notes internes organisateurs"
         integer total_price_cents
         string status "pending | confirmed | refunded | cancelled"
         string payment_method "stripe | cash | check"
@@ -297,6 +390,13 @@ gvg/
 | **FR-13** (Workflow de remboursement) | `backend/app/api/refunds.py` | `AD-6` (State machine d'annulation) |
 | **FR-14 & FR-15** (E-mailing & Notifications) | `backend/app/services/mail_service.py` | `AD-7` (FastAPI BackgroundTasks) |
 | **FR-17 & FR-18** (Attestation & Émargement PDF) | `backend/app/services/pdf_service.py` (WeasyPrint) | `AD-4` + `AD-7` (Génération HTML to PDF) |
+| **FR-19** (Authentification & Rôles Multi-Admins) | `backend/app/api/auth.py` + `frontend/src/context/AuthContext.tsx` | `AD-9` (JWT, bcrypt, RBAC & scope event_id) |
+| **FR-20 & FR-21** (Portail public & Vitrine événement) | `frontend/src/pages/HomePage.tsx` + `EventShowcasePage.tsx` | `AD-13` (Nginx static media caching) |
+| **FR-22** (Duplication d'événement & plan) | `backend/app/services/cloning_service.py` | `AD-10` (Clonage géométrique vierge PostGIS) |
+| **FR-23** (Fonds cartographiques WMS IGN) | `frontend/src/components/map/WmsLayer.tsx` | `AD-11` (Leaflet WMS Géoplateforme + saisie libre) |
+| **FR-24** (Verrouillage prix stands réservés) | `backend/app/services/spot_service.py` + `EditorMap.tsx` | `AD-12` (Invariant d'immuabilité financière) |
+| **FR-25** (Gestion des inscriptions en onglets & fiche) | `frontend/src/pages/admin/RegistrationsPage.tsx` | `AD-14` (Découpage modulaire & Drawer fiche) |
+| **FR-26** (Paramètres généraux & upload affiche) | `backend/app/api/events.py` + `EventSettingsPage.tsx` | `AD-13` (Upload streaming 5 Mo max) |
 | **NFR-4** (Déploiement Open-Source) | `scripts/install-ubuntu.sh` & `docker-compose.yml` | `AD-8` (Double cible de déploiement) |
 
 ---

@@ -5,7 +5,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-import weasyprint
+try:
+    import weasyprint
+except (ImportError, OSError):
+    weasyprint = None
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from app.models.event import Event
@@ -112,6 +115,8 @@ def generate_attestation_pdf(order: Order, event: Event) -> bytes:
     html_content = template.render(**context)
 
     # Compile HTML to PDF in memory using WeasyPrint
+    if weasyprint is None:
+        raise RuntimeError("WeasyPrint or required C libraries (libgobject/pango) are not available on this system.")
     pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
 
     return pdf_bytes
@@ -281,6 +286,8 @@ def generate_checkin_pdf(event: Event, orders: list[Order], sort_by: str = "spot
     html_content = template.render(**context)
 
     # Compile HTML to PDF in memory using WeasyPrint
+    if weasyprint is None:
+        raise RuntimeError("WeasyPrint or required C libraries (libgobject/pango) are not available on this system.")
     pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
     return pdf_bytes
 

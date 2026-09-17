@@ -2,7 +2,7 @@
 # Generated from epics.md
 
 generated: 09-04-2026 15:28
-last_updated: 09-15-2026 21:42
+last_updated: 09-17-2026 12:17
 project: gvg
 project_key: GVG
 tracking_system: file-system
@@ -42,6 +42,26 @@ development_status:
   5-2-export-feuille-emargement-officielle-pdf-excel: done
   5-3-scripts-deploiement-docker-compose-install-ubuntu: done
   epic-5-retrospective: done
+
+  epic-6: in-progress
+  6-1-modele-utilisateur-roles-api-auth-jwt: done
+  6-2-ecrans-connexion-securisation-frontend-scope-admin: ready-for-dev
+  6-3-console-super-admin-gestion-comptes-suppression-evenements: ready-for-dev
+  epic-6-retrospective: optional
+
+  epic-7: backlog
+  7-1-portail-accueil-public-multi-evenements: backlog
+  7-2-page-vitrine-par-evenement-affiche-officielle: backlog
+  7-3-edition-parametres-generaux-upload-affiche: backlog
+  7-4-moteur-duplication-vide-grenier-edition-suivante: backlog
+  epic-7-retrospective: optional
+
+  epic-8: backlog
+  8-1-decoupage-onglets-gestion-inscriptions: backlog
+  8-2-fiche-detaillee-inscription-modifiable-notes-internes: backlog
+  8-3-verrouillage-strict-prix-stands-reserves: backlog
+  8-4-integration-flux-cartographiques-wms-ign-saisie-libre: backlog
+  epic-8-retrospective: optional
 
 action_items:
   - id: "epic-1-retro-item-1-batch-delete-endpoint"

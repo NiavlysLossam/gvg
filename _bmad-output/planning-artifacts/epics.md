@@ -41,6 +41,14 @@ Ce document définit le découpage complet en Épics et User Stories pour **GVG 
 - **FR-16**: Variables de personnalisation dynamiques dans les emails (`{{exposant.prenom}}`, `{{commande.emplacements}}`, etc.).
 - **FR-17**: Génération automatique du formulaire d'attestation légale pré-rempli au format PDF (pour contrôle physique sur place le Jour J).
 - **FR-18**: Export de la feuille d'émargement officielle le Jour J (formats PDF et Excel, tri par allée ou nom d'exposant).
+- **FR-19**: Authentification et rôles multi-admins (Super-Admin et Admin d'événement ; un événement a un propriétaire unique, un admin peut posséder plusieurs événements, le super-admin peut gérer les comptes et supprimer des événements, les admins peuvent créer leurs événements).
+- **FR-20**: Portail public d'accueil multi-événements (page vitrine racine présentant les vide-greniers publiés avec recherche et filtres de dates).
+- **FR-21**: Page vitrine par événement avec affiche officielle (présentation détaillée, dates, tarifs, consignes, affichage de l'affiche jusqu'à 5 Mo et bouton CTA vers la réservation).
+- **FR-22**: Duplication d'un vide-grenier pour l'année suivante (clonage du plan, géométrie vectorielle des stands, secteurs et tarifs de base, remis en brouillon et vierge d'inscriptions).
+- **FR-23**: Fonds de plan WMS (intégration cartographique WMS dans Leaflet avec pré-sélections IGN Géoplateforme, Cadastre, OSM et champ de saisie libre d'URL WMS).
+- **FR-24**: Verrouillage strict des prix des stands réservés (interdiction de modifier le tarif d'un stand ayant fait l'objet d'une réservation confirmée ou en cours).
+- **FR-25**: Gestion des inscriptions en onglets et fiche détaillée (renommage en Gestion des inscriptions, 4 onglets modulaires, fiche d'inscription modifiable avec correction email/téléphone, bloc-notes interne et réexpédition d'attestation).
+- **FR-26**: Édition des paramètres généraux de l'événement et upload d'affiche (modification du titre, description, dates, tarif au mètre et téléversement d'affiche max 5 Mo).
 
 ### NonFunctional Requirements
 
@@ -96,6 +104,14 @@ Ce document définit le découpage complet en Épics et User Stories pour **GVG 
 | **FR-16** | **Epic 4** | Variables dynamiques de personnalisation |
 | **FR-17** | **Epic 5** | Attestation sur l'honneur PDF pré-remplie |
 | **FR-18** | **Epic 5** | Feuille d'émargement officielle Jour J (PDF/Excel) |
+| **FR-19** | **Epic 6** | Authentification & rôles multi-admins |
+| **FR-20** | **Epic 7** | Portail public d'accueil multi-événements |
+| **FR-21** | **Epic 7** | Page vitrine par événement avec affiche |
+| **FR-22** | **Epic 7** | Duplication d'un vide-grenier pour l'année suivante |
+| **FR-23** | **Epic 8** | Fonds de plan WMS (IGN & saisie libre) |
+| **FR-24** | **Epic 8** | Verrouillage strict des prix des stands réservés |
+| **FR-25** | **Epic 8** | Gestion des inscriptions en onglets & fiche détaillée |
+| **FR-26** | **Epic 7** | Édition des paramètres généraux & upload d'affiche |
 
 ---
 
@@ -369,3 +385,174 @@ Afin d'**installer la plateforme en quelques minutes sur n'importe quel héberge
 - **When** l'administrateur exécute `bash scripts/install-ubuntu.sh`,
 - **Then** le script installe PostgreSQL 16, PostGIS, Python 3.12, Nginx et les dépendances WeasyPrint,
 - **And** configure le service systemd `gvg.service` et le reverse-proxy Nginx avec succès.
+
+---
+
+### Epic 6 : Authentification, Rôles & Cloisonnement Multi-Admins
+Délimiter strictement l'espace public de l'espace d'administration avec un système d'authentification robuste (JWT), une gestion fine des permissions avec deux rôles (`super_admin` et `event_admin`), et un cloisonnement strict par événement (chaque événement a un unique propriétaire, mais un admin peut gérer plusieurs événements).
+**FRs couvertes :** FR-19
+
+#### Story 6.1 : Modèle Utilisateur, Rôles & API Auth JWT
+En tant qu'**administrateur de la plateforme**,  
+Je veux **m'authentifier via un couple email / mot de passe sécurisé et obtenir un token de session**,  
+Afin de **protéger les données sensibles des exposants et cloisonner l'accès aux fonctions d'administration**.
+
+**Acceptance Criteria:**
+- **Given** la base de données PostgreSQL,
+- **When** la migration Alembic est appliquée,
+- **Then** une table `users` est créée avec `id` (UUID), `email` (unique), `hashed_password` (bcrypt), `role` (`super_admin` ou `event_admin`), `is_active` (booléen) et `created_at`.
+- **And** la table `events` possède une colonne `owner_id` liant chaque événement à son admin créateur/propriétaire.
+- **Given** des identifiants valides soumis à `/api/v1/auth/login`,
+- **When** le mot de passe est vérifié par bcrypt,
+- **Then** l'API renvoie un token JWT d'accès avec l'identité et le rôle de l'utilisateur.
+- **Given** un déploiement initial de GVG,
+- **When** l'administrateur exécute le script CLI `python scripts/create_superadmin.py`,
+- **Then** le compte Super-Admin initial est créé avec mot de passe haché de manière idempotente.
+
+#### Story 6.2 : Écrans de Connexion, Sécurisation Frontend & Scope Admin
+En tant qu'**organisateur (Admin d'événement)**,  
+Je veux **me connecter via une page de login dédiée et accéder uniquement à mes propres vide-greniers**,  
+Afin de **gérer mes événements en toute autonomie sans risquer d'interférer avec les événements des autres organisateurs**.
+
+**Acceptance Criteria:**
+- **Given** un visiteur non connecté tentant d'accéder à une route `/admin/*`,
+- **When** la route est chargée dans le navigateur,
+- **Then** il est automatiquement redirigé vers `/login` avec conservation de l'URL cible de retour.
+- **Given** un `event_admin` authentifié,
+- **When** il consulte son tableau de bord,
+- **Then** seuls les événements dont il est le propriétaire (`owner_id == current_user.id`) lui sont présentés.
+- **And** les endpoints backend de modification, suppression, export et consultation des commandes vérifient strictement que l'utilisateur connecté est le propriétaire de l'événement (ou `super_admin`), sinon renvoient une erreur HTTP 403 Forbidden.
+- **Given** un `event_admin` authentifié,
+- **When** il clique sur "Créer un nouvel événement",
+- **Then** l'événement créé lui est automatiquement assigné comme propriétaire sans intervention du Super-Admin.
+
+#### Story 6.3 : Console Super-Admin (Gestion des Comptes & Suppression d'Événements)
+En tant que **Super-Admin de la plateforme**,  
+Je veux **gérer les comptes des organisateurs et pouvoir supprimer des événements obsolètes ou frauduleux**,  
+Afin de **piloter la plateforme globale et assister les associations partenaires**.
+
+**Acceptance Criteria:**
+- **Given** un utilisateur connecté avec le rôle `super_admin`,
+- **When** il accède à l'espace `/admin/users`,
+- **Then** il peut lister tous les comptes organisateurs, en créer de nouveaux (email + mot de passe temporaire) et réinitialiser leur mot de passe.
+- **Given** le Super-Admin consultant la liste de tous les événements de la plateforme,
+- **When** il clique sur "Supprimer l'événement",
+- **Then** une boîte de dialogue à confirmation renforcée s'affiche (demandant de ressaisir le nom exact de l'événement).
+- **And** la confirmation entraîne la suppression complète en cascade (ou l'archivage définitif) de l'événement et de ses enregistrements associés sans erreur d'intégrité référentielle.
+
+---
+
+### Epic 7 : Portail Public, Vitrines d'Événements, Paramètres & Duplication
+Offrir une vitrine d'accueil grand public listant tous les vide-greniers, une page de présentation dédiée par événement avec son affiche officielle (max 5 Mo), la gestion complète des paramètres généraux de l'événement, et un moteur de duplication du plan pour reconduire facilement l'événement l'année suivante.
+**FRs couvertes :** FR-20, FR-21, FR-22, FR-26
+
+#### Story 7.1 : Portail d'Accueil Public Multi-Événements
+En tant que **visiteur ou chineur grand public**,  
+Je veux **consulter la liste de tous les vide-greniers à venir sur la page d'accueil de la plateforme**,  
+Afin de **trouver facilement un événement près de chez moi et réserver ou m'y rendre**.
+
+**Acceptance Criteria:**
+- **Given** des événements existants en base de données,
+- **When** un internaute visite la racine du site (`/`),
+- **Then** seuls les événements au statut `publié` avec une date future (ou du jour) sont affichés sous forme de cartes/vignettes.
+- **And** chaque vignette affiche l'affiche ou miniature, le titre, la date, la commune/lieu, le nombre de places restantes et un bouton d'accès.
+- **And** une barre de recherche rapide permet de filtrer en temps réel par nom de commune ou mot-clé.
+
+#### Story 7.2 : Page Vitrine par Événement avec Affiche Officielle
+En tant qu'**exposant potentiel**,  
+Je veux **consulter la page d'accueil d'un vide-grenier avec son affiche, ses horaires, tarifs et consignes**,  
+Afin de **prendre connaissance des modalités pratiques avant d'ouvrir le plan de réservation**.
+
+**Acceptance Criteria:**
+- **Given** un événement publié accessible à l'URL `/events/:slug`,
+- **When** l'exposant ouvre la page,
+- **Then** il découvre une vue vitrine responsive présentant : l'affiche officielle grand format, le lieu et l'adresse, les horaires d'installation et d'ouverture au public, la description complète, les tarifs au mètre linéaire, les commodités (buvette, restauration, sanitaires) et le règlement.
+- **And** un bouton d'appel à l'action (CTA) proéminent "Consulter le plan & Réserver mes emplacements" le redirige vers le plan interactif Leaflet.
+
+#### Story 7.3 : Édition des Paramètres Généraux & Upload d'Affiche (Max 5 Mo)
+En tant qu'**organisateur (Admin d'événement)**,  
+Je veux **modifier les informations générales de mon vide-grenier et téléverser l'affiche officielle**,  
+Afin de **mettre à jour les renseignements pratiques et personnaliser l'identité visuelle de mon événement**.
+
+**Acceptance Criteria:**
+- **Given** l'admin sur l'écran "Paramètres de l'événement",
+- **When** il modifie le titre, la description, les dates de l'événement, les horaires ou le tarif de base au mètre linéaire et enregistre,
+- **Then** les modifications sont immédiatement sauvegardées en base et répercutées sur la page vitrine publique.
+- **Given** un fichier image d'affiche sélectionné par l'admin,
+- **When** l'admin soumet l'upload,
+- **Then** le frontend et le backend vérifient que le poids du fichier ne dépasse pas 5 Mo et que le format est valide (JPEG, PNG, WebP).
+- **And** le fichier est stocké dans le répertoire sécurisé des médias (`uploads/events/{id}/poster`) et immédiatement prévisualisé sur la fiche.
+
+#### Story 7.4 : Moteur de Duplication d'un Vide-Grenier pour l'Édition Suivante
+En tant qu'**organisateur (Marc)**,  
+Je veux **dupliquer mon vide-grenier de l'an passé avec son tracé de plan complet**,  
+Afin de **préparer la nouvelle édition en 1 clic sans avoir à redessiner les dizaines de stands sur la carte**.
+
+**Acceptance Criteria:**
+- **Given** un événement existant avec un plan configuré (secteurs, géométrie vectorielle des stands, numérotations, tarifs),
+- **When** l'organisateur clique sur "Dupliquer l'événement",
+- **Then** un nouvel événement est créé avec le nom suffixé (ex: "[Nom] - Copie"), un nouveau slug unique, rattaché au même propriétaire admin.
+- **And** le fond de plan (calibrage ou flux WMS) et tous les stands sont dupliqués avec leurs coordonnées spatiales exactes, leurs allées, numéros et métrages.
+- **And** le nouvel événement est initialisé au statut `brouillon`, avec des dates remises à zéro, et strictement aucune inscription, commande, paiement ou log d'email dupliqué.
+
+---
+
+### Epic 8 : Ergonomie Inscriptions (Onglets & Fiche), Verrouillage Prix & Cartographie WMS
+Optimiser le quotidien de l'organisateur avec une refonte modulaire de la "Gestion des inscriptions" en onglets thématiques, une fiche d'inscription individuelle modifiable avec bloc-notes interne et réexpédition d'attestation, le verrouillage strict des prix des stands réservés, et l'intégration cartographique des flux WMS de l'IGN.
+**FRs couvertes :** FR-23, FR-24, FR-25
+
+#### Story 8.1 : Découpage en Onglets de la Gestion des Inscriptions
+En tant qu'**organisateur**,  
+Je veux **naviguer dans la "Gestion des inscriptions" à travers des onglets thématiques clairs**,  
+Afin de **séparer le suivi des réservations, la saisie au guichet, la modération des litiges et les campagnes d'emails sans surcharge visuelle**.
+
+**Acceptance Criteria:**
+- **Given** le menu principal d'administration,
+- **When** l'organisateur clique sur "Gestion des inscriptions",
+- **Then** la page s'ouvre sur une interface à 4 onglets horizontaux :
+  1. *Inscriptions* (Tableau épuré, filtres par statut, recherche, export CSV/Excel).
+  2. *Guichet sur place* (Formulaire de saisie physique rapide chèque/espèces).
+  3. *Modération & Litiges* (File d'attente d'approbation et demandes d'annulation/remboursement).
+  4. *Communications* (Campagnes d'emails groupés, relances programmées J-7 / J-2 et journal d'envoi).
+- **And** l'état de l'onglet actif est synchronisé avec l'URL (query param `?tab=...`) pour permettre le rechargement sans perte de contexte.
+
+#### Story 8.2 : Fiche Détaillée d'Inscription Modifiable & Notes Internes
+En tant qu'**organisateur**,  
+Je veux **ouvrir une inscription sous forme de fiche pour corriger une erreur d'email ou noter un commentaire libre**,  
+Afin de **résoudre les coquilles de saisie des exposants et garder une trace des demandes particulières de l'équipe**.
+
+**Acceptance Criteria:**
+- **Given** le tableau des inscriptions,
+- **When** l'organisateur clique sur une ligne de réservation,
+- **Then** un panneau latéral (ou une modale détaillée) s'ouvre avec la fiche complète de l'exposant : coordonnées, stands réservés, détail du paiement, statut de la modération et historique d'émargement.
+- **And** l'organisateur peut modifier directement le champ e-mail (avec validation de format RFC) ou le numéro de téléphone.
+- **And** l'organisateur dispose d'un champ texte libre "Notes & Commentaires internes" (persistant en base et invisible de l'exposant).
+- **And** un bouton d'action "Renvoyer l'attestation par e-mail" permet de déclencher l'envoi immédiat du récapitulatif PDF vers la nouvelle adresse e-mail corrigée.
+
+#### Story 8.3 : Verrouillage Strict des Prix des Stands Réservés
+En tant qu'**organisateur et trésorier**,  
+Je veux **qu'un stand déjà réservé ne puisse pas voir son prix modifié dans l'éditeur de plan**,  
+Afin de **garantir la conformité entre le montant réglé par l'exposant et la tarification de l'événement**.
+
+**Acceptance Criteria:**
+- **Given** un stand ayant le statut `reserved` ou `booked` (associé à une commande payée ou en attente),
+- **When** l'organisateur sélectionne ce stand dans l'éditeur de plan Leaflet / Geoman,
+- **Then** le champ de prix dans le panneau de propriétés est grisé / désactivé avec un badge informatif "Prix verrouillé (stand déjà réservé)".
+- **Given** une requête API tentant de modifier le prix d'un stand réservé (`PATCH /api/v1/events/{id}/spots/{spot_id}` ou modification groupée),
+- **When** le backend détecte une commande active sur ce stand,
+- **Then** la requête est rejetée avec un code HTTP 400 Bad Request et un message explicite.
+- **And** si une réservation est ultérieurement annulée et le stand remis en disponibilité, le prix redevient éditable.
+
+#### Story 8.4 : Intégration des Flux Cartographiques WMS (IGN Géoplateforme & Saisie Libre)
+En tant qu'**organisateur configurant un vide-grenier en extérieur**,  
+Je veux **choisir un fond de plan cartographique WMS officiel (IGN Photos Aériennes, Cadastre) ou renseigner l'URL WMS de ma collectivité**,  
+Afin de **bénéficier d'une imagerie haute résolution et du découpage cadastral pour placer mes stands au millimètre**.
+
+**Acceptance Criteria:**
+- **Given** l'éditeur de plan d'un événement,
+- **When** l'organisateur configure le fond de plan,
+- **Then** il peut choisir le mode "Flux cartographique WMS".
+- **And** un menu déroulant lui propose les couches françaises pré-intégrées (Géoplateforme IGN : *Photos Aériennes Orthophoto HR*, *Plan Topographique IGN*, *Parcelles Cadastrales* et *OpenStreetMap standard*).
+- **And** une option "Flux WMS personnalisé" lui permet de saisir librement l'URL d'un serveur WMS (ex: SIG municipal) avec le nom de la couche (`layers`) et le format d'image (`image/png`).
+- **And** la couche WMS s'affiche en fond avec support du zoom et du déplacement dans l'éditeur Geoman et sur la vue de réservation publique.
+

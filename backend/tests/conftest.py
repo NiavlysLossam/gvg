@@ -38,16 +38,37 @@ if not is_postgres or test_engine is None:
 
     @event.listens_for(test_engine, "connect")
     def load_spatialite(dbapi_conn, connection_record):
+        loaded = False
         try:
             dbapi_conn.enable_load_extension(True)
             for ext in ["mod_spatialite", "mod_spatialite.so", "/usr/lib/x86_64-linux-gnu/mod_spatialite.so", "libspatialite.so"]:
                 try:
                     dbapi_conn.load_extension(ext)
+                    loaded = True
                     break
                 except Exception:
                     pass
         except Exception:
             pass
+
+        if not loaded:
+            # Fallback mock functions for SQLite when SpatiaLite is not installed
+            for fn, num in [
+                ("InitSpatialMetaData", 1),
+                ("InitSpatialMetaData", 0),
+                ("RecoverGeometryColumn", 5),
+                ("DiscardGeometryColumn", 2),
+                ("CreateSpatialIndex", 2),
+                ("DisableSpatialIndex", 2),
+            ]:
+                try:
+                    dbapi_conn.create_function(fn, num, lambda *args: 1)
+                except Exception:
+                    pass
+            try:
+                dbapi_conn.create_function("CheckSpatialIndex", 2, lambda *args: None)
+            except Exception:
+                pass
 
     with test_engine.connect() as conn:
         try:

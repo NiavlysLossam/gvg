@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     STRIPE_PUBLISHABLE_KEY: str = ""
     STRIPE_WEBHOOK_SECRET: str = ""
 
+    # JWT / Authentication
+    JWT_SECRET_KEY: str = "gvg_default_insecure_jwt_secret_key_change_in_production"
+    JWT_ALGORITHM: str = "HS256"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 24 hours
+
     # SMTP / Emails
     SMTP_HOST: Optional[str] = None
     SMTP_PORT: int = 587

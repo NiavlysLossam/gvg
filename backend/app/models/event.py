@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, func, Uuid
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, func, Uuid, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -58,6 +58,13 @@ class Event(Base):
     )
 
     # Relationships
+    owner_id = Column(
+        Uuid(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    owner = relationship("User", back_populates="events")
     spots = relationship("Spot", back_populates="event", cascade="all, delete-orphan")
     orders = relationship("Order", back_populates="event", cascade="all, delete-orphan")
 
