@@ -19,7 +19,11 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, onNavigateHome 
   const getRedirectUrl = (): string | undefined => {
     if (typeof window === 'undefined') return undefined;
     const params = new URLSearchParams(window.location.search);
-    return params.get('redirect') || undefined;
+    const redirect = params.get('redirect');
+    if (redirect && redirect.startsWith('/') && !redirect.startsWith('//')) {
+      return redirect;
+    }
+    return undefined;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -97,7 +101,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, onNavigateHome 
               <label htmlFor="email" className="block text-sm font-semibold text-gray-700">
                 Adresse e-mail
               </label>
-              <div className="mt-1 relative rounded-xl shadow-xs">
+              <div className="mt-1 relative rounded-xl shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
                   <Mail className="w-4 h-4" />
                 </div>
@@ -119,7 +123,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onSuccess, onNavigateHome 
               <label htmlFor="password" className="block text-sm font-semibold text-gray-700">
                 Mot de passe
               </label>
-              <div className="mt-1 relative rounded-xl shadow-xs">
+              <div className="mt-1 relative rounded-xl shadow-sm">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-gray-400">
                   <Lock className="w-4 h-4" />
                 </div>

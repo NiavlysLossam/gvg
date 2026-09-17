@@ -5,10 +5,16 @@ from typing import Optional, Dict, Any
 from app.core.config import settings
 
 
+# Precomputed valid bcrypt hash used to mitigate timing attacks on invalid emails
+DUMMY_BCRYPT_HASH = "$2b$12$e8Y6bFj63y3hG7G7e68vOuG1qK75eO9t8rP.gO0wQp/k98Z.q9G6u"
+
+
 def hash_password(password: str) -> str:
     """Hash a plaintext password using bcrypt with auto-generated salt."""
     if not password:
         raise ValueError("Password cannot be empty")
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Password cannot exceed 72 bytes")
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 

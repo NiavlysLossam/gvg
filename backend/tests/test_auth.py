@@ -141,7 +141,7 @@ def test_login_invalid_credentials(client: TestClient, db_session: Session):
 
 
 def test_login_inactive_user(client: TestClient, db_session: Session):
-    """Vérifie le rejet d'un compte désactivé (is_active=False)."""
+    """Vérifie le rejet d'un compte désactivé (is_active=False) avec HTTP 403."""
     user = User(
         email="inactive@gvg.fr",
         hashed_password=hash_password("Pass123!"),
@@ -155,8 +155,34 @@ def test_login_inactive_user(client: TestClient, db_session: Session):
         "/api/v1/auth/login",
         json={"email": "inactive@gvg.fr", "password": "Pass123!"},
     )
-    assert response.status_code == 400
+    assert response.status_code == 403
     assert "Inactive user" in response.json()["detail"]
+
+
+def test_inactive_user_token_rejected_on_protected_endpoints(client: TestClient, db_session: Session):
+    """Vérifie qu'un token JWT valide appartenant à un compte désactivé est rejeté avec HTTP 403."""
+    user = User(
+        email="inactive_jwt@gvg.fr",
+        hashed_password=hash_password("Pass123!"),
+        role=UserRole.EVENT_ADMIN,
+        is_active=False,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
+    response = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403
+    assert "inactive" in response.json()["detail"].lower()
+
+
+def test_login_password_exceeding_max_length_rejected(client: TestClient):
+    """Vérifie que la tentative de connexion avec un mot de passe > 72 caractères est rejetée avec 422."""
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "any@gvg.fr", "password": "a" * 73},
+    )
+    assert response.status_code == 422
 
 
 def test_get_current_user_profile(client: TestClient, db_session: Session):
@@ -184,6 +210,7 @@ def test_get_current_user_profile(client: TestClient, db_session: Session):
     data = res_auth.json()
     assert data["email"] == "profil@gvg.fr"
     assert data["role"] == UserRole.SUPER_ADMIN
+    assert "updated_at" in data
 
 
 def test_refresh_token(client: TestClient, db_session: Session):

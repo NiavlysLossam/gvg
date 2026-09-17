@@ -5,7 +5,7 @@ from sqlalchemy import func
 
 from app.core.config import settings
 from app.core.database import get_db
-from app.core.security import verify_password, create_access_token
+from app.core.security import verify_password, create_access_token, DUMMY_BCRYPT_HASH
 from app.models.user import User
 from app.schemas.auth import LoginRequest, TokenResponse, UserResponse
 from app.api.deps import get_current_user
@@ -39,7 +39,15 @@ def login(
         .first()
     )
 
-    if not user or not verify_password(login_data.password, user.hashed_password):
+    if not user:
+        verify_password(login_data.password, DUMMY_BCRYPT_HASH)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not verify_password(login_data.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
@@ -48,7 +56,7 @@ def login(
 
     if not user.is_active:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
+            status_code=status.HTTP_403_FORBIDDEN,
             detail="Inactive user account",
         )
 

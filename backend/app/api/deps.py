@@ -14,21 +14,7 @@ from app.models.event import Event
 http_bearer = HTTPBearer(auto_error=False)
 
 
-def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
-    token_param: Optional[str] = Query(None, alias="token"),
-    db: Session = Depends(get_db),
-) -> User:
-    """
-    Validate the Bearer access token or token query param and return the authenticated User.
-    Raises HTTP 401 on missing, expired, or invalid tokens.
-    """
-    raw_token = None
-    if credentials and credentials.scheme.lower() == "bearer":
-        raw_token = credentials.credentials
-    elif token_param:
-        raw_token = token_param
-
+def _authenticate_token(raw_token: Optional[str], db: Session) -> User:
     if not raw_token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -36,9 +22,8 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    token = raw_token
     try:
-        payload = decode_access_token(token)
+        payload = decode_access_token(raw_token)
         user_id_str: Optional[str] = payload.get("sub")
         if not user_id_str:
             raise HTTPException(
@@ -69,6 +54,41 @@ def get_current_user(
         )
 
     return user
+
+
+def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Validate the Bearer access token from Authorization header and return the authenticated User.
+    Raises HTTP 401 on missing, expired, or invalid tokens.
+    """
+    raw_token = None
+    if credentials and credentials.scheme.lower() == "bearer":
+        raw_token = credentials.credentials
+    return _authenticate_token(raw_token, db)
+
+
+def get_current_user_with_query_token(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(http_bearer),
+    token_param: Optional[str] = Query(None, alias="token"),
+    db: Session = Depends(get_db),
+) -> User:
+    """
+    Authenticate via Bearer header or fallback to '?token=' query parameter.
+    Reserved for direct file download endpoints where custom headers cannot be set by browser navigation.
+    """
+    raw_token = None
+    if credentials and credentials.scheme.lower() == "bearer":
+        raw_token = credentials.credentials
+    elif token_param:
+        raw_token = token_param
+    return _authenticate_token(raw_token, db)
+
+
+# Alias conforming to architecture specification
+get_current_active_user = get_current_user
 
 
 def require_super_admin(

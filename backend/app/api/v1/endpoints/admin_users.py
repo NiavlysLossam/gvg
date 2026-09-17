@@ -52,6 +52,7 @@ def list_admin_users(
                 role=u.role,
                 is_active=u.is_active,
                 created_at=u.created_at,
+                updated_at=u.updated_at,
                 events_count=count,
             )
         )
@@ -100,6 +101,7 @@ def create_admin_user(
         role=new_user.role,
         is_active=new_user.is_active,
         created_at=new_user.created_at,
+        updated_at=new_user.updated_at,
         events_count=0,
     )
 
@@ -172,6 +174,7 @@ def update_admin_user(
         role=target_user.role,
         is_active=target_user.is_active,
         created_at=target_user.created_at,
+        updated_at=target_user.updated_at,
         events_count=events_count,
     )
 

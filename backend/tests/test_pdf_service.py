@@ -499,3 +499,41 @@ def test_admin_attestation_download_not_found(client: TestClient, db_session: Se
     res_cross = client.get(f"/api/v1/events/{other_event.id}/orders/{order.id}/attestation.pdf")
     assert res_cross.status_code == 404
 
+
+def test_admin_attestation_download_with_query_param_token(client: TestClient, db_session: Session):
+    """
+    Vérifie qu'une requête sans header Authorization (X-No-Auth: 1) mais avec un token JWT valide
+    dans le paramètre ?token=<jwt> peut télécharger l'attestation PDF.
+    """
+    from app.models.user import User, UserRole
+    from app.core.security import create_access_token
+
+    event, order, _ = create_test_event_and_confirmed_order(db_session)
+
+    user = User(
+        email="download_query_test@gvg.fr",
+        hashed_password="hashed_dummy_password",
+        role=UserRole.SUPER_ADMIN,
+        is_active=True,
+    )
+    db_session.add(user)
+    db_session.commit()
+
+    token = create_access_token({"sub": str(user.id), "email": user.email, "role": user.role})
+
+    # Sans header Auth, mais avec ?token=...
+    res = client.get(
+        f"/api/v1/events/{event.id}/orders/{order.id}/attestation.pdf?token={token}",
+        headers={"X-No-Auth": "1"},
+    )
+    assert res.status_code == 200
+    assert res.content.startswith(b"%PDF-")
+
+    # Sans token ni header Auth -> 401
+    res_no_token = client.get(
+        f"/api/v1/events/{event.id}/orders/{order.id}/attestation.pdf",
+        headers={"X-No-Auth": "1"},
+    )
+    assert res_no_token.status_code == 401
+
+

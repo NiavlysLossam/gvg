@@ -31,12 +31,13 @@ from app.models.event import Event
 def create_or_update_superadmin(email: str, password: str) -> None:
     email = email.strip().lower()
     if not email or "@" not in email:
-        print(f"[ERROR] Invalid email address: '{email}'", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Invalid email address: '{email}'")
 
     if not password or len(password) < 6:
-        print("[ERROR] Password must be at least 6 characters long", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError("Password must be at least 6 characters long")
+
+    if len(password.encode("utf-8")) > 72:
+        raise ValueError("Password cannot exceed 72 bytes")
 
     db = SessionLocal()
     try:
@@ -101,7 +102,11 @@ def main():
             print("[ERROR] Passwords do not match.", file=sys.stderr)
             sys.exit(1)
 
-    create_or_update_superadmin(email, password)
+    try:
+        create_or_update_superadmin(email, password)
+    except ValueError as err:
+        print(f"[ERROR] {err}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -11,7 +11,7 @@ from app.models.spot import Spot
 from app.models.order import Order, BookingItem
 from app.models.email_log import EmailLog
 from app.models.user import User
-from app.api.deps import get_current_user, check_event_ownership
+from app.api.deps import get_current_user, get_current_user_with_query_token, check_event_ownership
 from app.schemas.order import (
     OfflineOrderCreate,
     EventDashboardStats,
@@ -805,7 +805,7 @@ def download_admin_attestation_pdf(
     id_or_slug: str,
     order_id: uuid.UUID,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_query_token),
 ) -> Response:
     """
     Organizer endpoint to download the official sworn statement (Attestation sur l'honneur) PDF
@@ -851,7 +851,7 @@ def download_admin_checkin_pdf(
     id_or_slug: str,
     sort_by: str = Query("spot", description="Sorting mode: 'spot' (by stall number) or 'alpha' (by exhibitor name)"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_query_token),
 ) -> Response:
     """
     Organizer endpoint to download the official check-in sheet (feuille d'émargement) PDF.
@@ -893,7 +893,7 @@ def download_admin_checkin_xlsx(
     id_or_slug: str,
     sort_by: str = Query("spot", description="Sorting mode: 'spot' or 'alpha'"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user_with_query_token),
 ) -> Response:
     """
     Organizer endpoint to download the official check-in sheet Excel workbook (.xlsx).

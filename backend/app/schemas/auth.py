@@ -9,7 +9,7 @@ EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 class LoginRequest(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
-    password: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1, max_length=72)
 
     @field_validator("email")
     @classmethod
@@ -26,6 +26,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     created_at: datetime
+    updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -35,7 +36,7 @@ class AdminUserResponse(UserResponse):
 
 
 class ResetPasswordRequest(BaseModel):
-    new_password: str = Field(..., min_length=6)
+    new_password: str = Field(..., min_length=6, max_length=72)
 
 
 class TokenResponse(BaseModel):
@@ -47,7 +48,7 @@ class TokenResponse(BaseModel):
 
 class UserCreate(BaseModel):
     email: str = Field(..., min_length=3, max_length=255)
-    password: str = Field(..., min_length=6)
+    password: str = Field(..., min_length=6, max_length=72)
     role: str = Field("event_admin", pattern="^(super_admin|event_admin)$")
 
     @field_validator("email")
@@ -61,7 +62,7 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     email: Optional[str] = Field(None, min_length=3, max_length=255)
-    password: Optional[str] = Field(None, min_length=6)
+    password: Optional[str] = Field(None, min_length=6, max_length=72)
     is_active: Optional[bool] = None
     role: Optional[str] = Field(None, pattern="^(super_admin|event_admin)$")
 

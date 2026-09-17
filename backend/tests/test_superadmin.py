@@ -151,7 +151,7 @@ def test_update_admin_user_and_self_lockout(client: TestClient, auth_context: di
         "/api/v1/auth/login",
         json={"email": auth_context["organizer"].email, "password": "OrganizerSecret123!"},
     )
-    assert login_resp.status_code == 400
+    assert login_resp.status_code == 403
     assert "Inactive user" in login_resp.json()["detail"]
 
     # Reactivate organizer -> 200 OK
