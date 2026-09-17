@@ -43,10 +43,10 @@ development_status:
   5-3-scripts-deploiement-docker-compose-install-ubuntu: done
   epic-5-retrospective: done
 
-  epic-6: in-progress
+  epic-6: done
   6-1-modele-utilisateur-roles-api-auth-jwt: done
   6-2-ecrans-connexion-securisation-frontend-scope-admin: done
-  6-3-console-super-admin-gestion-comptes-suppression-evenements: ready-for-dev
+  6-3-console-super-admin-gestion-comptes-suppression-evenements: done
   epic-6-retrospective: optional
 
   epic-7: backlog

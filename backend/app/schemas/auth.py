@@ -30,6 +30,14 @@ class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class AdminUserResponse(UserResponse):
+    events_count: int = 0
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str = Field(..., min_length=6)
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

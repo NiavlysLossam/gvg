@@ -20,3 +20,23 @@ export interface LoginCredentials {
   password: string;
 }
 
+export interface AdminUserListItem extends User {
+  events_count: number;
+}
+
+export interface CreateUserData {
+  email: string;
+  password: string;
+  role?: UserRole;
+}
+
+export interface UpdateUserData {
+  email?: string;
+  role?: UserRole;
+  is_active?: boolean;
+}
+
+export interface ResetPasswordData {
+  new_password: string;
+}
+

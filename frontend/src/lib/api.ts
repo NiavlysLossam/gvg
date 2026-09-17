@@ -10,7 +10,15 @@ import {
   SpotBatchRenumberResponse,
 } from '../types/spot';
 
-import { LoginCredentials, LoginResponse, User } from '../types/auth';
+import {
+  LoginCredentials,
+  LoginResponse,
+  User,
+  AdminUserListItem,
+  CreateUserData,
+  UpdateUserData,
+  ResetPasswordData,
+} from '../types/auth';
 
 const API_BASE = import.meta.env.VITE_API_URL ? `${import.meta.env.VITE_API_URL}/api/v1` : '/api/v1';
 const TOKEN_KEY = 'gvg_access_token';
@@ -47,7 +55,7 @@ export async function authFetch(url: string, options: RequestInit = {}): Promise
 }
 
 export async function loginApi(credentials: LoginCredentials): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE}/auth/token`, {
+  const response = await fetch(`${API_BASE}/auth/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -927,6 +935,113 @@ export function getAdminCheckinXlsxUrl(eventIdOrSlug: string, sortBy?: 'spot' | 
   if (token) params.set('token', token);
   const query = params.toString() ? `?${params.toString()}` : '';
   return `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/checkin.xlsx${query}`;
+}
+
+export async function deleteEvent(idOrSlug: string): Promise<void> {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(idOrSlug)}`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    let detail = "Impossible de supprimer l'événement";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+}
+
+export async function fetchAdminUsers(): Promise<AdminUserListItem[]> {
+  const response = await authFetch(`${API_BASE}/admin/users`);
+  if (!response.ok) {
+    let detail = 'Impossible de récupérer la liste des utilisateurs';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
+export async function createAdminUser(data: CreateUserData): Promise<AdminUserListItem> {
+  const response = await authFetch(`${API_BASE}/admin/users`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    let detail = "Impossible de créer l'utilisateur";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
+export async function updateAdminUser(
+  userId: string,
+  data: UpdateUserData
+): Promise<AdminUserListItem> {
+  const response = await authFetch(`${API_BASE}/admin/users/${encodeURIComponent(userId)}`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data),
+  });
+
+  if (!response.ok) {
+    let detail = "Impossible de mettre à jour l'utilisateur";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
+export async function resetAdminUserPassword(
+  userId: string,
+  data: ResetPasswordData
+): Promise<{ message: string }> {
+  const response = await authFetch(
+    `${API_BASE}/admin/users/${encodeURIComponent(userId)}/reset-password`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Impossible de réinitialiser le mot de passe';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
 }
 
 

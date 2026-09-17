@@ -47,6 +47,6 @@ class EmailLog(Base):
     )
 
     # Relationships
-    event = relationship("Event", backref="email_logs")
-    order = relationship("Order", backref="email_logs")
+    event = relationship("Event", back_populates="email_logs")
+    order = relationship("Order", back_populates="email_logs")
 

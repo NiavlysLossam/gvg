@@ -2,7 +2,7 @@ import uuid
 from datetime import timezone
 from typing import Optional
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Response, status
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from slugify import slugify
@@ -11,7 +11,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.event import Event
 from app.models.user import User, UserRole
-from app.api.deps import get_current_user, check_event_ownership
+from app.api.deps import get_current_user, check_event_ownership, require_super_admin
 from app.schemas.event import (
     EventCreate,
     EventUpdate,
@@ -319,3 +319,58 @@ async def upload_background_image(
         raise exc
 
     return event
+
+
+@router.delete(
+    "/{id_or_slug}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an event and all its associated data (Super-Admin only)",
+)
+def delete_event(
+    id_or_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_super_admin),
+) -> Response:
+    """
+    Completely deletes an event and all of its associated records (spots, orders,
+    booking items, email logs) in cascade, as well as unlinking any associated
+    floorplan background image on disk. Restricted to Super-Administrators.
+    """
+    event: Optional[Event] = None
+    try:
+        val_uuid = uuid.UUID(id_or_slug)
+        event = db.query(Event).filter(Event.id == val_uuid).first()
+    except ValueError:
+        event = None
+
+    if not event:
+        event = db.query(Event).filter(Event.slug == id_or_slug).first()
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    # Clean up uploaded background floorplan image on disk safely if present
+    file_to_unlink: Optional[Path] = None
+    if event.background_image_url and event.background_image_url.startswith("/uploads/"):
+        rel_path = event.background_image_url.removeprefix("/uploads/")
+        candidate_path = (settings.upload_dir_path / rel_path).resolve()
+        try:
+            if candidate_path.is_relative_to(settings.upload_dir_path.resolve()) and candidate_path.is_file():
+                file_to_unlink = candidate_path
+        except (ValueError, OSError):
+            pass
+
+    db.delete(event)
+    db.commit()
+
+    if file_to_unlink:
+        try:
+            file_to_unlink.unlink()
+        except OSError:
+            pass
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+

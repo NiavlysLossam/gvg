@@ -19,6 +19,11 @@ router = APIRouter()
     summary="User Login",
     description="Authenticate with email and password to receive an HS256 JWT access token.",
 )
+@router.post(
+    "/token",
+    response_model=TokenResponse,
+    include_in_schema=False,
+)
 def login(
     login_data: LoginRequest,
     db: Session = Depends(get_db),

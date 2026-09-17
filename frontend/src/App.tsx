@@ -9,6 +9,7 @@ import {
   PenTool,
   Users,
   Loader2,
+  ShieldCheck,
 } from 'lucide-react';
 import { EventModel } from './types/event';
 import { fetchEvents, fetchEvent } from './lib/api';
@@ -24,6 +25,8 @@ import { PublicEventPage } from './pages/PublicEventPage';
 import { ReservationPage } from './pages/ReservationPage';
 import { ConfirmationPage } from './pages/ConfirmationPage';
 import { CancellationPage } from './pages/CancellationPage';
+import { AdminUsersPage } from './pages/AdminUsersPage';
+import { DeleteEventModal } from './components/DeleteEventModal';
 
 interface PublicRouteState {
   slug: string;
@@ -40,6 +43,19 @@ function parseLoginRoute(): boolean {
     if (hash === '#/login' || hash.startsWith('#/login')) return true;
     const params = new URLSearchParams(window.location.search);
     if (params.has('login')) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
+function parseUsersRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const pathname = window.location.pathname;
+    if (pathname === '/admin/users' || pathname.startsWith('/admin/users/')) return true;
+    const hash = window.location.hash;
+    if (hash === '#/admin/users' || hash.startsWith('#/admin/users')) return true;
   } catch {
     return false;
   }
@@ -175,11 +191,15 @@ function parsePublicRoute(): PublicRouteState | null {
 
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading } = useAuth();
   const [isLoginRoute, setIsLoginRoute] = useState<boolean>(parseLoginRoute());
+  const [isUsersRoute, setIsUsersRoute] = useState<boolean>(parseUsersRoute());
   const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
-  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions'>('list');
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions' | 'users'>(
+    parseUsersRoute() ? 'users' : 'list'
+  );
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
+  const [eventToDelete, setEventToDelete] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [notification, setNotification] = useState<string | null>(null);
@@ -190,18 +210,30 @@ const AppContent: React.FC = () => {
       setIsLoginRoute(parseLoginRoute());
       const pub = parsePublicRoute();
       setPublicRoute(pub);
+      const isUsers = parseUsersRoute();
+      setIsUsersRoute(isUsers);
       if (!pub) {
-        const adm = parseAdminRoute();
-        if (adm) {
-          setActiveTab('inscriptions');
+        if (isUsers) {
+          setActiveTab('users');
         } else {
-          setActiveTab('list');
+          const adm = parseAdminRoute();
+          if (adm) {
+            setActiveTab('inscriptions');
+          } else {
+            setActiveTab('list');
+          }
         }
       }
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
+
+  useEffect(() => {
+    if (isUsersRoute && isAuthenticated) {
+      setActiveTab('users');
+    }
+  }, [isUsersRoute, isAuthenticated]);
 
   const navigateToPublic = (slug: string) => {
     window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}`);
@@ -236,6 +268,8 @@ const AppContent: React.FC = () => {
     window.history.pushState({}, '', '/');
     setPublicRoute(null);
     setIsLoginRoute(false);
+    setIsUsersRoute(false);
+    setActiveTab('list');
   };
 
   const loadEvents = async () => {
@@ -410,7 +444,11 @@ const AppContent: React.FC = () => {
 
           <div className="flex items-center space-x-3">
             <button
-              onClick={() => setActiveTab('list')}
+              onClick={() => {
+                setActiveTab('list');
+                window.history.pushState({}, '', '/');
+                setIsUsersRoute(false);
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
                 activeTab === 'list'
                   ? 'bg-gray-100 text-gray-900'
@@ -420,6 +458,24 @@ const AppContent: React.FC = () => {
               <ListFilter className="w-4 h-4" />
               <span>Événements ({events.length})</span>
             </button>
+
+            {user?.role === 'super_admin' && (
+              <button
+                onClick={() => {
+                  setActiveTab('users');
+                  window.history.pushState({}, '', '/admin/users');
+                  setIsUsersRoute(true);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+                  activeTab === 'users'
+                    ? 'bg-purple-100 text-purple-900'
+                    : 'text-purple-700 hover:bg-purple-50'
+                }`}
+              >
+                <ShieldCheck className="w-4 h-4 text-purple-600" />
+                <span>Utilisateurs</span>
+              </button>
+            )}
 
             {activeTab === 'calibrate' && selectedEvent && (
               <div className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
@@ -443,7 +499,10 @@ const AppContent: React.FC = () => {
             )}
 
             <button
-              onClick={() => setActiveTab('create')}
+              onClick={() => {
+                setActiveTab('create');
+                setIsUsersRoute(false);
+              }}
               className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-sm ${
                 activeTab === 'create'
                   ? 'bg-emerald-700 text-white'
@@ -458,6 +517,11 @@ const AppContent: React.FC = () => {
               onLogout={() => {
                 window.history.pushState({}, '', '/login');
                 setIsLoginRoute(true);
+              }}
+              onNavigateUsers={() => {
+                setActiveTab('users');
+                window.history.pushState({}, '', '/admin/users');
+                setIsUsersRoute(true);
               }}
             />
           </div>
@@ -496,7 +560,38 @@ const AppContent: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'create' ? (
+        {activeTab === 'users' ? (
+          user?.role === 'super_admin' ? (
+            <div className="max-w-7xl mx-auto">
+              <AdminUsersPage
+                onBack={() => {
+                  setActiveTab('list');
+                  window.history.pushState({}, '', '/');
+                  setIsUsersRoute(false);
+                }}
+              />
+            </div>
+          ) : (
+            <div className="bg-red-50 border border-red-200 text-red-800 p-8 rounded-2xl text-center max-w-lg mx-auto my-12 shadow-xs">
+              <ShieldCheck className="w-12 h-12 text-red-500 mx-auto mb-3" />
+              <h3 className="text-lg font-bold">Accès refusé</h3>
+              <p className="text-sm text-red-600 mt-1">
+                Seuls les super-administrateurs de la plateforme peuvent accéder à la console de gestion des utilisateurs.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('list');
+                  window.history.pushState({}, '', '/');
+                  setIsUsersRoute(false);
+                }}
+                className="mt-5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition"
+              >
+                Retour aux événements
+              </button>
+            </div>
+          )
+        ) : activeTab === 'create' ? (
           <div className="max-w-3xl mx-auto">
             <EventForm onSuccess={handleCreated} />
           </div>
@@ -581,6 +676,9 @@ const AppContent: React.FC = () => {
                     onOpenEditor={handleOpenEditor}
                     onViewPublic={navigateToPublic}
                     onOpenInscriptions={handleOpenInscriptions}
+                    onDelete={
+                      user?.role === 'super_admin' ? (evt) => setEventToDelete(evt) : undefined
+                    }
                   />
                 ))}
               </div>
@@ -588,6 +686,19 @@ const AppContent: React.FC = () => {
           </div>
         )}
       </main>
+
+      <DeleteEventModal
+        event={eventToDelete}
+        isOpen={Boolean(eventToDelete)}
+        onClose={() => setEventToDelete(null)}
+        onSuccess={() => {
+          if (eventToDelete) {
+            setNotification(`L'événement « ${eventToDelete.title} » a été supprimé avec succès.`);
+            setEvents(events.filter((e) => e.id !== eventToDelete.id));
+          }
+          setEventToDelete(null);
+        }}
+      />
 
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 py-6 mt-auto">

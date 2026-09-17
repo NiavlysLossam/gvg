@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool, Users } from 'lucide-react';
+import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool, Users, Trash2 } from 'lucide-react';
 import { EventModel } from '../types/event';
 
 interface EventCardProps {
@@ -8,6 +8,7 @@ interface EventCardProps {
   onOpenEditor?: (event: EventModel) => void;
   onViewPublic?: (slug: string) => void;
   onOpenInscriptions?: (event: EventModel) => void;
+  onDelete?: (event: EventModel) => void;
 }
 
 export const EventCard: React.FC<EventCardProps> = ({
@@ -16,6 +17,7 @@ export const EventCard: React.FC<EventCardProps> = ({
   onOpenEditor,
   onViewPublic,
   onOpenInscriptions,
+  onDelete,
 }) => {
   const startDate = new Date(event.start_date);
   const formattedDate = startDate.toLocaleDateString('fr-FR', {
@@ -121,6 +123,18 @@ export const EventCard: React.FC<EventCardProps> = ({
             >
               <Users className="w-3.5 h-3.5 text-indigo-600" />
               <span>Inscriptions</span>
+            </button>
+          )}
+
+          {onDelete && (
+            <button
+              type="button"
+              onClick={() => onDelete(event)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-semibold rounded-lg border border-red-200 transition"
+              title="Supprimer l'événement (Super-Admin)"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-red-600" />
+              <span className="hidden sm:inline">Supprimer</span>
             </button>
           )}
         </div>

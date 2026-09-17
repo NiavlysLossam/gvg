@@ -119,6 +119,7 @@ class Order(Base):
     # Relationships
     event = relationship("Event", back_populates="orders")
     items = relationship("BookingItem", back_populates="order", cascade="all, delete-orphan")
+    email_logs = relationship("EmailLog", back_populates="order", cascade="all, delete-orphan")
 
     def __repr__(self) -> str:
         return f"<Order id={self.id} order_number={self.order_number!r} status={self.status!r}>"
