@@ -695,3 +695,242 @@ def test_session_isolation_in_cart(client: TestClient):
     assert c2["total_count"] == 1
     assert c2["spots"][0]["id"] == id2
 
+
+def test_list_public_events_unauthenticated(client: TestClient, db_session: Session):
+    event = create_sample_event(client, title="Public Open Event")
+    # Mark as published
+    client.patch(f"/api/v1/events/{event['id']}", json={"status": "published"})
+
+    # Fetch without auth header
+    response = client.get("/api/v1/public/events", headers={"X-No-Auth": "1"})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert isinstance(data, list)
+    found = [e for e in data if e["id"] == event["id"]]
+    assert len(found) == 1
+    item = found[0]
+    assert item["title"] == "Public Open Event"
+    assert item["status"] == "published"
+    assert "total_spots" in item
+    assert "available_spots" in item
+    assert item["price_per_meter"] == 4.0
+
+
+def test_list_public_events_filters_draft_and_past(client: TestClient, db_session: Session):
+    now = datetime.now(timezone.utc)
+
+    # 1. Published upcoming event
+    e_pub = create_sample_event(client, title="Upcoming Published Event")
+    client.patch(f"/api/v1/events/{e_pub['id']}", json={"status": "published"})
+
+    # 2. Draft upcoming event
+    e_draft = create_sample_event(client, title="Upcoming Draft Event")
+    # remains draft
+
+    # 3. Archived upcoming event
+    e_archived = create_sample_event(client, title="Upcoming Archived Event")
+    client.patch(f"/api/v1/events/{e_archived['id']}", json={"status": "archived"})
+
+    # 4. Past published event directly in DB (ended yesterday)
+    e_past = Event(
+        title="Past Published Event",
+        slug="past-published-event-" + str(uuid.uuid4())[:8],
+        status="published",
+        price_per_meter_cents=500,
+        start_date=now - timedelta(days=5),
+        end_date=now - timedelta(days=1),
+        location_address="Ancienne Place, Rennes",
+    )
+    db_session.add(e_past)
+    db_session.commit()
+
+    # Query public events
+    res = client.get("/api/v1/public/events", headers={"X-No-Auth": "1"})
+    assert res.status_code == 200
+    returned_ids = [e["id"] for e in res.json()]
+
+    assert e_pub["id"] in returned_ids
+    assert e_draft["id"] not in returned_ids
+    assert e_archived["id"] not in returned_ids
+    assert str(e_past.id) not in returned_ids
+
+
+def test_list_public_events_spot_availability_aggregation(client: TestClient, db_session: Session):
+    now = datetime.now(timezone.utc)
+    event = create_sample_event(client, title="Aggregated Spots Event")
+    event_id = uuid.UUID(event["id"])
+    client.patch(f"/api/v1/events/{event['id']}", json={"status": "published"})
+
+    wkt = geojson_to_wkt_polygon({"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS})
+
+    # Spot 1: available
+    s1 = Spot(
+        event_id=event_id,
+        label="AVAIL-01",
+        linear_meters=2.0,
+        price_cents=800,
+        geom=wkt,
+        status="available",
+    )
+    # Spot 2: locked expired
+    s2 = Spot(
+        event_id=event_id,
+        label="EXPIRED-01",
+        linear_meters=2.0,
+        price_cents=800,
+        geom=wkt,
+        status="locked",
+        locked_until=now - timedelta(minutes=5),
+        locked_by_token="token-expired",
+    )
+    # Spot 3: locked active
+    s3 = Spot(
+        event_id=event_id,
+        label="LOCKED-01",
+        linear_meters=2.0,
+        price_cents=800,
+        geom=wkt,
+        status="locked",
+        locked_until=now + timedelta(minutes=10),
+        locked_by_token="token-active",
+    )
+    # Spot 4: reserved
+    s4 = Spot(
+        event_id=event_id,
+        label="RES-01",
+        linear_meters=3.0,
+        price_cents=1200,
+        geom=wkt,
+        status="reserved",
+    )
+    # Spot 5: blocked
+    s5 = Spot(
+        event_id=event_id,
+        label="BLOCKED-01",
+        linear_meters=3.0,
+        price_cents=1200,
+        geom=wkt,
+        status="blocked",
+    )
+    db_session.add_all([s1, s2, s3, s4, s5])
+
+    # Another published event with 0 spots
+    e_zero = create_sample_event(client, title="Zero Spots Event")
+    client.patch(f"/api/v1/events/{e_zero['id']}", json={"status": "published"})
+
+    db_session.commit()
+
+    res = client.get("/api/v1/public/events", headers={"X-No-Auth": "1"})
+    assert res.status_code == 200
+    data = res.json()
+
+    item_with_spots = next(e for e in data if e["id"] == str(event_id))
+    assert item_with_spots["total_spots"] == 5
+    # available (s1) + expired lock (s2) = 2 available spots
+    assert item_with_spots["available_spots"] == 2
+
+    item_zero = next(e for e in data if e["id"] == e_zero["id"])
+    assert item_zero["total_spots"] == 0
+    assert item_zero["available_spots"] == 0
+
+
+def test_list_public_events_search_filter(client: TestClient):
+    e_rennes = create_sample_event(client, title="Grande Braderie de Rennes")
+    client.patch(
+        f"/api/v1/events/{e_rennes['id']}",
+        json={"status": "published", "location_address": "Place Sainte-Anne, 35000 Rennes"},
+    )
+
+    e_nantes = create_sample_event(client, title="Brocante de l'Erdre")
+    client.patch(
+        f"/api/v1/events/{e_nantes['id']}",
+        json={"status": "published", "location_address": "Quai de la Fosse, 44000 Nantes"},
+    )
+
+    # Event matching via unique keyword in description
+    e_desc = create_sample_event(client, title="Foire aux Livres")
+    client.patch(
+        f"/api/v1/events/{e_desc['id']}",
+        json={
+            "status": "published",
+            "description": "Vente exceptionnelle de bandes dessinées et vinyles rares",
+            "location_address": "Gymnase Municipal, 29000 Brest",
+        },
+    )
+
+    # Search for Rennes
+    res_rennes = client.get("/api/v1/public/events?search=rennes", headers={"X-No-Auth": "1"})
+    assert res_rennes.status_code == 200
+    ids_rennes = [e["id"] for e in res_rennes.json()]
+    assert e_rennes["id"] in ids_rennes
+    assert e_nantes["id"] not in ids_rennes
+    assert e_desc["id"] not in ids_rennes
+
+    # Search for Erdre
+    res_erdre = client.get("/api/v1/public/events?search=erdre", headers={"X-No-Auth": "1"})
+    assert res_erdre.status_code == 200
+    ids_erdre = [e["id"] for e in res_erdre.json()]
+    assert e_nantes["id"] in ids_erdre
+    assert e_rennes["id"] not in ids_erdre
+    assert e_desc["id"] not in ids_erdre
+
+    # Search for keyword in description
+    res_desc = client.get("/api/v1/public/events?search=vinyles", headers={"X-No-Auth": "1"})
+    assert res_desc.status_code == 200
+    ids_desc = [e["id"] for e in res_desc.json()]
+    assert e_desc["id"] in ids_desc
+    assert e_rennes["id"] not in ids_desc
+    assert e_nantes["id"] not in ids_desc
+
+    # Search non-matching
+    res_none = client.get("/api/v1/public/events?search=xyzinexistant", headers={"X-No-Auth": "1"})
+    assert res_none.status_code == 200
+    assert res_none.json() == []
+
+
+def test_list_public_events_chronological_ordering(client: TestClient, db_session: Session):
+    now = datetime.now(timezone.utc)
+
+    # Event in 10 days
+    e_later = create_sample_event(client, title="Later Event")
+    client.patch(
+        f"/api/v1/events/{e_later['id']}",
+        json={
+            "status": "published",
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=11)).isoformat(),
+        },
+    )
+
+    # Event in 2 days
+    e_sooner = create_sample_event(client, title="Sooner Event")
+    client.patch(
+        f"/api/v1/events/{e_sooner['id']}",
+        json={
+            "status": "published",
+            "start_date": (now + timedelta(days=2)).isoformat(),
+            "end_date": (now + timedelta(days=3)).isoformat(),
+        },
+    )
+
+    res = client.get("/api/v1/public/events", headers={"X-No-Auth": "1"})
+    assert res.status_code == 200
+    data = res.json()
+
+    ids = [e["id"] for e in data if e["id"] in (e_later["id"], e_sooner["id"])]
+    assert ids == [e_sooner["id"], e_later["id"]]
+
+
+def test_list_public_events_zero_sensitive_data_leak(client: TestClient):
+    event = create_sample_event(client, title="Secure Public Listing Event")
+    client.patch(f"/api/v1/events/{event['id']}", json={"status": "published"})
+
+    res = client.get("/api/v1/public/events", headers={"X-No-Auth": "1"})
+    assert res.status_code == 200
+    item = next(e for e in res.json() if e["id"] == event["id"])
+
+    assert "stripe_account_id" not in item
+    assert "owner_id" not in item
+    assert "organizer_email" not in item
+
+

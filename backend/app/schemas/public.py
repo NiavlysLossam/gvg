@@ -134,6 +134,65 @@ class PublicEventResponse(BaseModel):
         return data
 
 
+class PublicEventListItem(BaseModel):
+    id: uuid.UUID
+    title: str
+    slug: str
+    description: Optional[str] = None
+    map_type: Literal["geographic", "planar"] = "geographic"
+    background_image_url: Optional[str] = None
+    center_latitude: Optional[float] = None
+    center_longitude: Optional[float] = None
+    default_zoom: Optional[int] = None
+    price_per_meter_cents: int
+    price_per_meter: float = Field(..., description="Tarif au mètre en euros")
+
+    start_date: datetime
+    end_date: datetime
+    setup_start_time: Optional[str] = "06:00"
+    setup_end_time: Optional[str] = "08:00"
+    public_start_time: Optional[str] = "08:00"
+    public_end_time: Optional[str] = "18:00"
+
+    location_address: Optional[str] = None
+    status: str = "published"
+    total_spots: int = 0
+    available_spots: int = 0
+
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_price_per_meter(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "price_per_meter" not in data and "price_per_meter_cents" in data:
+                cents = data.get("price_per_meter_cents")
+                if cents is not None:
+                    data["price_per_meter"] = round(cents / 100.0, 2)
+            return data
+
+        if hasattr(data, "price_per_meter"):
+            return data
+
+        cents = getattr(data, "price_per_meter_cents", None)
+        if cents is not None:
+            if hasattr(data, "__table__"):
+                data_dict = {
+                    c.name: getattr(data, c.name)
+                    for c in data.__table__.columns
+                }
+                data_dict["price_per_meter"] = round(cents / 100.0, 2)
+                return data_dict
+            elif hasattr(data, "__dict__"):
+                data_dict = dict(data.__dict__)
+                data_dict["price_per_meter"] = round(cents / 100.0, 2)
+                return data_dict
+        return data
+
+
 def public_spot_to_feature(
     spot: Any,
     effective_status: str,

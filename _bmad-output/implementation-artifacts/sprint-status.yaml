@@ -49,8 +49,8 @@ development_status:
   6-3-console-super-admin-gestion-comptes-suppression-evenements: done
   epic-6-retrospective: optional
 
-  epic-7: backlog
-  7-1-portail-accueil-public-multi-evenements: backlog
+  epic-7: in-progress
+  7-1-portail-accueil-public-multi-evenements: done
   7-2-page-vitrine-par-evenement-affiche-officielle: backlog
   7-3-edition-parametres-generaux-upload-affiche: backlog
   7-4-moteur-duplication-vide-grenier-edition-suivante: backlog

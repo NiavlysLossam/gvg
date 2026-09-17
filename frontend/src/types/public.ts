@@ -55,6 +55,32 @@ export interface PublicEventResponse {
   updated_at?: string | null;
 }
 
+export interface PublicEventListItem {
+  id: string;
+  title: string;
+  slug: string;
+  description?: string | null;
+  map_type: 'geographic' | 'planar';
+  background_image_url?: string | null;
+  center_latitude?: number | null;
+  center_longitude?: number | null;
+  default_zoom?: number | null;
+  price_per_meter_cents: number;
+  price_per_meter: number;
+  start_date: string;
+  end_date: string;
+  setup_start_time?: string | null;
+  setup_end_time?: string | null;
+  public_start_time?: string | null;
+  public_end_time?: string | null;
+  location_address?: string | null;
+  status: string;
+  total_spots: number;
+  available_spots: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
 export interface LockSpotRequest {
   session_token: string;
 }

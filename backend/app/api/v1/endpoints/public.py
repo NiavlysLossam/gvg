@@ -1,7 +1,7 @@
 import uuid
 import secrets
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, status, BackgroundTasks, Response
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import func, case, and_, or_, update, text, select
@@ -13,6 +13,7 @@ from app.models.spot import Spot
 from app.models.order import Order, BookingItem, generate_order_number, generate_access_token
 from app.schemas.public import (
     PublicEventResponse,
+    PublicEventListItem,
     PublicSpotFeatureCollection,
     public_spots_to_feature_collection,
     LockSpotRequest,
@@ -25,6 +26,108 @@ from app.services import stripe_service, email_service, pdf_service
 
 
 router = APIRouter()
+
+
+@router.get(
+    "/events",
+    response_model=List[PublicEventListItem],
+    summary="List public upcoming published events with stall availability",
+)
+def list_public_events(
+    search: Optional[str] = Query(None, description="Filtrer par mot-clé, ville ou description"),
+    db: Session = Depends(get_db),
+) -> List[PublicEventListItem]:
+    """
+    Public unauthenticated endpoint returning all published upcoming events.
+    Dynamically aggregates total_spots and available_spots using outer join.
+    Filters out draft, archived, cancelled, or past events.
+    Orders events chronologically by start_date ASC.
+    """
+    # Dynamic spot availability aggregation subquery:
+    # Spots are available if status == 'available' OR (status == 'locked' AND (locked_until IS NULL OR locked_until < func.now()))
+    spot_stats = (
+        select(
+            Spot.event_id.label("event_id"),
+            func.count(Spot.id).label("total_spots"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            or_(
+                                Spot.status == "available",
+                                and_(
+                                    Spot.status == "locked",
+                                    or_(Spot.locked_until.is_(None), Spot.locked_until < func.now()),
+                                ),
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("available_spots"),
+        )
+        .group_by(Spot.event_id)
+        .subquery()
+    )
+
+    query = (
+        db.query(
+            Event,
+            func.coalesce(spot_stats.c.total_spots, 0).label("total_spots"),
+            func.coalesce(spot_stats.c.available_spots, 0).label("available_spots"),
+        )
+        .outerjoin(spot_stats, Event.id == spot_stats.c.event_id)
+        .filter(
+            Event.status == "published",
+            func.date(Event.end_date) >= func.date(func.now()),
+        )
+    )
+
+    if search and search.strip():
+        escaped = search.strip().replace('\\', r'\\').replace('%', r'\%').replace('_', r'\_')
+        term = f"%{escaped}%"
+        query = query.filter(
+            or_(
+                Event.title.ilike(term),
+                Event.location_address.ilike(term),
+                Event.description.ilike(term),
+            )
+        )
+
+    results = query.order_by(Event.start_date.asc()).all()
+
+    items: List[PublicEventListItem] = []
+    for event, total_spots, available_spots in results:
+        items.append(
+            PublicEventListItem(
+                id=event.id,
+                title=event.title,
+                slug=event.slug,
+                description=event.description,
+                map_type=event.map_type,
+                background_image_url=event.background_image_url,
+                center_latitude=event.center_latitude,
+                center_longitude=event.center_longitude,
+                default_zoom=event.default_zoom,
+                price_per_meter_cents=event.price_per_meter_cents,
+                price_per_meter=event.price_per_meter,
+                start_date=event.start_date,
+                end_date=event.end_date,
+                setup_start_time=event.setup_start_time,
+                setup_end_time=event.setup_end_time,
+                public_start_time=event.public_start_time,
+                public_end_time=event.public_end_time,
+                location_address=event.location_address,
+                status=event.status,
+                total_spots=int(total_spots or 0),
+                available_spots=int(available_spots or 0),
+                created_at=event.created_at,
+                updated_at=event.updated_at,
+            )
+        )
+    return items
 
 
 def get_public_event_by_slug(db: Session, slug: str) -> Event:

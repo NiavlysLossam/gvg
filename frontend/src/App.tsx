@@ -10,12 +10,14 @@ import {
   Users,
   Loader2,
   ShieldCheck,
+  Globe,
 } from 'lucide-react';
 import { EventModel } from './types/event';
 import { fetchEvents, fetchEvent } from './lib/api';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AdminHeader } from './components/AdminHeader';
 import { LoginPage } from './pages/LoginPage';
+import { HomePage } from './pages/HomePage';
 import { EventForm } from './components/EventForm';
 import { EventCard } from './components/EventCard';
 import { MapCalibration } from './components/MapCalibration';
@@ -81,13 +83,28 @@ function parseAdminRoute(): { eventId: string; view: 'inscriptions' } | null {
   return null;
 }
 
+function parseAdminDashboardRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const pathname = window.location.pathname;
+    if (pathname === '/admin' || pathname === '/admin/' || pathname.startsWith('/admin/')) return true;
+    const hash = window.location.hash;
+    if (hash === '#/admin' || hash === '#/admin/' || hash.startsWith('#/admin')) return true;
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('admin')) return true;
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 function parsePublicRoute(): PublicRouteState | null {
   if (typeof window === 'undefined') return null;
   try {
     const pathname = window.location.pathname;
 
-    // 0. Pathname: /e/:slug/confirmation/:orderId
-    const confMatch = pathname.match(/^\/e\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
+    // 0. Pathname: /e/:slug/confirmation/:orderId or /events/:slug/confirmation/:orderId
+    const confMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (confMatch && confMatch[1] && confMatch[2]) {
       return {
         slug: decodeURIComponent(confMatch[1]),
@@ -96,8 +113,8 @@ function parsePublicRoute(): PublicRouteState | null {
       };
     }
 
-    // 0b. Pathname: /e/:slug/annulation/:orderId
-    const annMatch = pathname.match(/^\/e\/([^/?#]+)\/annulation\/([^/?#]+)\/?(?:\?.*)?$/);
+    // 0b. Pathname: /e/:slug/annulation/:orderId or /events/:slug/annulation/:orderId
+    const annMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)\/annulation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (annMatch && annMatch[1] && annMatch[2]) {
       return {
         slug: decodeURIComponent(annMatch[1]),
@@ -106,8 +123,8 @@ function parsePublicRoute(): PublicRouteState | null {
       };
     }
 
-    // 1. Pathname: /e/:slug/reservation
-    const resMatch = pathname.match(/^\/e\/([^/]+)\/reservation\/?$/);
+    // 1. Pathname: /e/:slug/reservation or /events/:slug/reservation
+    const resMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)\/reservation\/?$/);
     if (resMatch && resMatch[1]) {
       return {
         slug: decodeURIComponent(resMatch[1]),
@@ -115,8 +132,8 @@ function parsePublicRoute(): PublicRouteState | null {
       };
     }
 
-    // 2. Pathname: /e/:slug
-    const publicMatch = pathname.match(/^\/e\/([^/]+)\/?$/);
+    // 2. Pathname: /e/:slug, /events/:slug, /e/:slug/map, or /events/:slug/map
+    const publicMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)(?:\/map)?\/?$/);
     if (publicMatch && publicMatch[1]) {
       return {
         slug: decodeURIComponent(publicMatch[1]),
@@ -126,7 +143,7 @@ function parsePublicRoute(): PublicRouteState | null {
 
     // 3. Hash routing fallback
     const hash = window.location.hash;
-    const hashConfMatch = hash.match(/^#\/e\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
+    const hashConfMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (hashConfMatch && hashConfMatch[1] && hashConfMatch[2]) {
       return {
         slug: decodeURIComponent(hashConfMatch[1]),
@@ -134,7 +151,7 @@ function parsePublicRoute(): PublicRouteState | null {
         orderId: decodeURIComponent(hashConfMatch[2]),
       };
     }
-    const hashAnnMatch = hash.match(/^#\/e\/([^/?#]+)\/annulation\/([^/?#]+)\/?(?:\?.*)?$/);
+    const hashAnnMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)\/annulation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (hashAnnMatch && hashAnnMatch[1] && hashAnnMatch[2]) {
       return {
         slug: decodeURIComponent(hashAnnMatch[1]),
@@ -142,14 +159,14 @@ function parsePublicRoute(): PublicRouteState | null {
         orderId: decodeURIComponent(hashAnnMatch[2]),
       };
     }
-    const hashResMatch = hash.match(/^#\/e\/([^/]+)\/reservation\/?$/);
+    const hashResMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)\/reservation\/?$/);
     if (hashResMatch && hashResMatch[1]) {
       return {
         slug: decodeURIComponent(hashResMatch[1]),
         view: 'reservation',
       };
     }
-    const hashMatch = hash.match(/^#\/e\/([^/]+)\/?$/);
+    const hashMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)(?:\/map)?\/?$/);
     if (hashMatch && hashMatch[1]) {
       return {
         slug: decodeURIComponent(hashMatch[1]),
@@ -194,6 +211,9 @@ const AppContent: React.FC = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const [isLoginRoute, setIsLoginRoute] = useState<boolean>(parseLoginRoute());
   const [isUsersRoute, setIsUsersRoute] = useState<boolean>(parseUsersRoute());
+  const [isAdminRoute, setIsAdminRoute] = useState<boolean>(
+    parseAdminDashboardRoute() || parseUsersRoute() || Boolean(parseAdminRoute())
+  );
   const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
   const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions' | 'users'>(
     parseUsersRoute() ? 'users' : 'list'
@@ -207,12 +227,16 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     const handlePopState = () => {
-      setIsLoginRoute(parseLoginRoute());
+      const isLog = parseLoginRoute();
+      setIsLoginRoute(isLog);
       const pub = parsePublicRoute();
       setPublicRoute(pub);
       const isUsers = parseUsersRoute();
       setIsUsersRoute(isUsers);
-      if (!pub) {
+      const isAdm = parseAdminDashboardRoute() || isUsers || Boolean(parseAdminRoute());
+      setIsAdminRoute(isAdm);
+
+      if (!pub && isAdm) {
         if (isUsers) {
           setActiveTab('users');
         } else {
@@ -238,11 +262,15 @@ const AppContent: React.FC = () => {
   const navigateToPublic = (slug: string) => {
     window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}`);
     setPublicRoute({ slug, view: 'map' });
+    setIsAdminRoute(false);
+    setIsLoginRoute(false);
   };
 
   const navigateToReservation = (slug: string) => {
     window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}/reservation`);
     setPublicRoute({ slug, view: 'reservation' });
+    setIsAdminRoute(false);
+    setIsLoginRoute(false);
   };
 
   const navigateToConfirmation = (slug: string, orderId: string, accessToken: string) => {
@@ -252,6 +280,8 @@ const AppContent: React.FC = () => {
       `/e/${encodeURIComponent(slug)}/confirmation/${encodeURIComponent(orderId)}?token=${encodeURIComponent(accessToken)}`
     );
     setPublicRoute({ slug, view: 'confirmation', orderId });
+    setIsAdminRoute(false);
+    setIsLoginRoute(false);
   };
 
   const navigateToCancellation = (slug: string, orderId: string, accessToken?: string) => {
@@ -262,14 +292,38 @@ const AppContent: React.FC = () => {
       `/e/${encodeURIComponent(slug)}/annulation/${encodeURIComponent(orderId)}${tokenQuery}`
     );
     setPublicRoute({ slug, view: 'cancellation', orderId });
+    setIsAdminRoute(false);
+    setIsLoginRoute(false);
   };
 
   const navigateHome = () => {
     window.history.pushState({}, '', '/');
     setPublicRoute(null);
     setIsLoginRoute(false);
+    setIsAdminRoute(false);
     setIsUsersRoute(false);
     setActiveTab('list');
+  };
+
+  const navigateToAdmin = () => {
+    window.history.pushState({}, '', '/admin');
+    setPublicRoute(null);
+    setIsLoginRoute(false);
+    setIsAdminRoute(true);
+    setIsUsersRoute(false);
+    setActiveTab('list');
+  };
+
+  const navigateToLogin = () => {
+    if (isAuthenticated) {
+      navigateToAdmin();
+    } else {
+      window.history.pushState({}, '', '/login');
+      setPublicRoute(null);
+      setIsLoginRoute(true);
+      setIsAdminRoute(false);
+      setIsUsersRoute(false);
+    }
   };
 
   const loadEvents = async () => {
@@ -303,10 +357,10 @@ const AppContent: React.FC = () => {
   };
 
   useEffect(() => {
-    if (!publicRoute && isAuthenticated) {
+    if (!publicRoute && isAdminRoute && isAuthenticated) {
       loadEvents();
     }
-  }, [publicRoute, isAuthenticated]);
+  }, [publicRoute, isAdminRoute, isAuthenticated]);
 
   const handleCreated = (newEvent: EventModel) => {
     setEvents([newEvent, ...events]);
@@ -387,23 +441,6 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (isLoginRoute) {
-    if (isAuthenticated) {
-      window.history.pushState({}, '', '/');
-      setIsLoginRoute(false);
-    } else {
-      return (
-        <LoginPage
-          onSuccess={(redirect) => {
-            window.history.pushState({}, '', redirect || '/');
-            setIsLoginRoute(false);
-          }}
-          onNavigateHome={navigateHome}
-        />
-      );
-    }
-  }
-
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -415,49 +452,105 @@ const AppContent: React.FC = () => {
     );
   }
 
-  if (!isAuthenticated) {
-    return (
-      <LoginPage
-        onSuccess={(redirect) => {
-          window.history.pushState({}, '', redirect || '/');
-          setIsLoginRoute(false);
-        }}
-        onNavigateHome={navigateHome}
-      />
-    );
+  if (isLoginRoute) {
+    if (isAuthenticated) {
+      window.history.pushState({}, '', '/admin');
+      setIsLoginRoute(false);
+      setIsAdminRoute(true);
+      setActiveTab('list');
+    } else {
+      return (
+        <LoginPage
+          onSuccess={(redirect) => {
+            const dest = redirect || '/admin';
+            window.history.pushState({}, '', dest);
+            setIsLoginRoute(false);
+            if (dest.startsWith('/admin/users')) {
+              setIsUsersRoute(true);
+              setIsAdminRoute(true);
+              setActiveTab('users');
+            } else {
+              setIsAdminRoute(true);
+              setActiveTab('list');
+            }
+          }}
+          onNavigateHome={navigateHome}
+        />
+      );
+    }
   }
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Top Navigation */}
-      <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-xs">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-              <Map className="w-5 h-5" />
-            </div>
-            <div>
-              <h1 className="font-extrabold text-gray-900 text-lg leading-tight">GVG</h1>
-              <p className="text-xs text-gray-500 font-medium">Gestion de Vide-Greniers</p>
-            </div>
-          </div>
+  if (isAdminRoute) {
+    if (!isAuthenticated) {
+      return (
+        <LoginPage
+          onSuccess={(redirect) => {
+            const dest = redirect || '/admin';
+            window.history.pushState({}, '', dest);
+            setIsLoginRoute(false);
+            if (dest.startsWith('/admin/users')) {
+              setIsUsersRoute(true);
+              setIsAdminRoute(true);
+              setActiveTab('users');
+            } else {
+              setIsAdminRoute(true);
+              setActiveTab('list');
+            }
+          }}
+          onNavigateHome={navigateHome}
+        />
+      );
+    }
 
-          <div className="flex items-center space-x-3">
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col">
+        {/* Top Navigation */}
+        <header className="bg-white border-b border-gray-200 sticky top-0 z-30 shadow-sm">
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <button
-              onClick={() => {
-                setActiveTab('list');
-                window.history.pushState({}, '', '/');
-                setIsUsersRoute(false);
-              }}
-              className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
-                activeTab === 'list'
-                  ? 'bg-gray-100 text-gray-900'
-                  : 'text-gray-600 hover:text-gray-900'
-              }`}
+              type="button"
+              onClick={navigateHome}
+              className="flex items-center space-x-3 cursor-pointer group text-left focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 rounded-xl"
+              title="Retourner au portail public d'accueil"
+              aria-label="Retourner au portail public d'accueil"
             >
-              <ListFilter className="w-4 h-4" />
-              <span>Événements ({events.length})</span>
+              <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center font-bold text-lg shadow-sm group-hover:bg-emerald-700 transition">
+                <Map className="w-5 h-5" />
+              </div>
+              <div>
+                <span className="block font-extrabold text-gray-900 text-lg leading-tight group-hover:text-emerald-700 transition">
+                  GVG
+                </span>
+                <p className="text-xs text-gray-500 font-medium">Gestion de Vide-Greniers</p>
+              </div>
             </button>
+
+            <div className="flex items-center space-x-3">
+              <button
+                type="button"
+                onClick={navigateHome}
+                className="px-3 py-2 rounded-lg text-sm font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 transition flex items-center gap-1.5 shadow-sm"
+                title="Consulter le portail public d'accueil"
+              >
+                <Globe className="w-4 h-4 text-emerald-600" />
+                <span className="hidden sm:inline">Portail Public</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('list');
+                  window.history.pushState({}, '', '/admin');
+                  setIsUsersRoute(false);
+                }}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 ${
+                  activeTab === 'list'
+                    ? 'bg-gray-100 text-gray-900'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                <ListFilter className="w-4 h-4" />
+                <span>Événements ({events.length})</span>
+              </button>
 
             {user?.role === 'super_admin' && (
               <button
@@ -531,7 +624,7 @@ const AppContent: React.FC = () => {
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
         {fetchError && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-xs">
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm">
             <div className="flex items-center space-x-3">
               <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
               <p className="text-sm font-medium">{fetchError}</p>
@@ -546,7 +639,7 @@ const AppContent: React.FC = () => {
         )}
 
         {notification && (
-          <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-xs animate-fade-in">
+          <div className="mb-6 bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-3 rounded-xl flex items-center justify-between shadow-sm animate-fade-in">
             <div className="flex items-center space-x-3">
               <CheckCircle2 className="w-5 h-5 text-emerald-600 flex-shrink-0" />
               <p className="text-sm font-medium">{notification}</p>
@@ -566,13 +659,13 @@ const AppContent: React.FC = () => {
               <AdminUsersPage
                 onBack={() => {
                   setActiveTab('list');
-                  window.history.pushState({}, '', '/');
+                  window.history.pushState({}, '', '/admin');
                   setIsUsersRoute(false);
                 }}
               />
             </div>
           ) : (
-            <div className="bg-red-50 border border-red-200 text-red-800 p-8 rounded-2xl text-center max-w-lg mx-auto my-12 shadow-xs">
+            <div className="bg-red-50 border border-red-200 text-red-800 p-8 rounded-2xl text-center max-w-lg mx-auto my-12 shadow-sm">
               <ShieldCheck className="w-12 h-12 text-red-500 mx-auto mb-3" />
               <h3 className="text-lg font-bold">Accès refusé</h3>
               <p className="text-sm text-red-600 mt-1">
@@ -582,7 +675,7 @@ const AppContent: React.FC = () => {
                 type="button"
                 onClick={() => {
                   setActiveTab('list');
-                  window.history.pushState({}, '', '/');
+                  window.history.pushState({}, '', '/admin');
                   setIsUsersRoute(false);
                 }}
                 className="mt-5 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-sm font-semibold transition"
@@ -618,7 +711,7 @@ const AppContent: React.FC = () => {
               event={selectedEvent}
               onBack={() => {
                 setActiveTab('list');
-                window.history.pushState({}, '', '/');
+                window.history.pushState({}, '', '/admin');
               }}
               onOpenEditor={() => handleOpenEditor(selectedEvent)}
             />
@@ -708,6 +801,16 @@ const AppContent: React.FC = () => {
         </div>
       </footer>
     </div>
+  );
+  }
+
+  return (
+    <HomePage
+      onViewEvent={navigateToPublic}
+      onReserveEvent={navigateToReservation}
+      onNavigateAdmin={navigateToAdmin}
+      onNavigateLogin={navigateToLogin}
+    />
   );
 };
 

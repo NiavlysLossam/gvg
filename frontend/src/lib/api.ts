@@ -338,6 +338,22 @@ export async function renumberSpotsBatch(
   return response.json();
 }
 
+export async function fetchPublicEvents(search?: string): Promise<import('../types/public').PublicEventListItem[]> {
+  const query = search && search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+  const response = await authFetch(`${API_BASE}/public/events${query}`);
+  if (!response.ok) {
+    let detail = 'Erreur lors du chargement des événements';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+  return response.json();
+}
+
 export async function fetchPublicEvent(slug: string): Promise<import('../types/public').PublicEventResponse> {
   const response = await authFetch(`${API_BASE}/public/events/${encodeURIComponent(slug)}`);
   if (!response.ok) {
