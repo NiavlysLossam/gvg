@@ -66,6 +66,7 @@ def health_check():
 # Ensure uploads directory structure exists
 upload_dir = settings.upload_dir_path
 (upload_dir / "backgrounds").mkdir(parents=True, exist_ok=True)
+(upload_dir / "posters").mkdir(parents=True, exist_ok=True)
 
 # Mount static files for user-uploaded assets
 from fastapi.staticfiles import StaticFiles

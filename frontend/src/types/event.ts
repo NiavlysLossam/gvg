@@ -55,7 +55,7 @@ export interface EventCreateInput {
 
 export interface EventUpdateInput {
   title?: string;
-  description?: string;
+  description?: string | null;
   map_type?: MapType;
   background_image_url?: string | null;
   poster_image_url?: string | null;
@@ -65,14 +65,14 @@ export interface EventUpdateInput {
   price_per_meter?: number;
   start_date?: string;
   end_date?: string;
-  setup_start_time?: string;
-  setup_end_time?: string;
-  public_start_time?: string;
-  public_end_time?: string;
-  location_address?: string;
-  organizer_email?: string;
+  setup_start_time?: string | null;
+  setup_end_time?: string | null;
+  public_start_time?: string | null;
+  public_end_time?: string | null;
+  location_address?: string | null;
+  organizer_email?: string | null;
   manual_approval_required?: boolean;
-  rules_text?: string;
+  rules_text?: string | null;
   status?: EventStatus;
 }
 

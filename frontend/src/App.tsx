@@ -11,6 +11,7 @@ import {
   Loader2,
   ShieldCheck,
   Globe,
+  Settings,
 } from 'lucide-react';
 import { EventModel } from './types/event';
 import { fetchEvents, fetchEvent } from './lib/api';
@@ -29,6 +30,7 @@ import { ReservationPage } from './pages/ReservationPage';
 import { ConfirmationPage } from './pages/ConfirmationPage';
 import { CancellationPage } from './pages/CancellationPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
+import { EventSettingsPage } from './pages/EventSettingsPage';
 import { DeleteEventModal } from './components/DeleteEventModal';
 
 interface PublicRouteState {
@@ -243,7 +245,7 @@ const AppContent: React.FC = () => {
     parseAdminDashboardRoute() || parseUsersRoute() || Boolean(parseAdminRoute())
   );
   const [publicRoute, setPublicRoute] = useState<PublicRouteState | null>(parsePublicRoute());
-  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions' | 'users'>(
+  const [activeTab, setActiveTab] = useState<'list' | 'create' | 'calibrate' | 'editor' | 'inscriptions' | 'users' | 'settings'>(
     parseUsersRoute() ? 'users' : 'list'
   );
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
@@ -427,6 +429,18 @@ const AppContent: React.FC = () => {
     setEvents(events.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
     setSelectedEvent(updatedEvent);
     setNotification(`Le plan de l'événement « ${updatedEvent.title} » a été calibré avec succès !`);
+    setTimeout(() => setNotification(null), 6000);
+  };
+
+  const handleEditSettings = (event: EventModel) => {
+    setSelectedEvent(event);
+    setActiveTab('settings');
+  };
+
+  const handleSavedSettings = (updatedEvent: EventModel) => {
+    setEvents(events.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)));
+    setSelectedEvent(updatedEvent);
+    setNotification(`Les paramètres de « ${updatedEvent.title} » ont été mis à jour avec succès !`);
     setTimeout(() => setNotification(null), 6000);
   };
 
@@ -637,6 +651,13 @@ const AppContent: React.FC = () => {
               </div>
             )}
 
+            {activeTab === 'settings' && selectedEvent && (
+              <div className="px-3 py-1.5 rounded-lg text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 flex items-center gap-1.5">
+                <Settings className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="truncate max-w-[160px]">{selectedEvent.title} (Paramètres)</span>
+              </div>
+            )}
+
             <button
               onClick={() => {
                 setActiveTab('create');
@@ -762,6 +783,15 @@ const AppContent: React.FC = () => {
               onOpenEditor={() => handleOpenEditor(selectedEvent)}
             />
           </div>
+        ) : activeTab === 'settings' && selectedEvent ? (
+          <div className="max-w-6xl mx-auto">
+            <EventSettingsPage
+              event={selectedEvent}
+              onBack={() => setActiveTab('list')}
+              onSaved={handleSavedSettings}
+              onViewPublic={navigateToPublic}
+            />
+          </div>
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
@@ -815,6 +845,7 @@ const AppContent: React.FC = () => {
                     onOpenEditor={handleOpenEditor}
                     onViewPublic={navigateToPublic}
                     onOpenInscriptions={handleOpenInscriptions}
+                    onEditSettings={handleEditSettings}
                     onDelete={
                       user?.role === 'super_admin' ? (evt) => setEventToDelete(evt) : undefined
                     }

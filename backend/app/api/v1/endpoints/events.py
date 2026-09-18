@@ -193,6 +193,7 @@ def update_event(
     if "title" in update_data and update_data["title"] != event.title:
         update_data["slug"] = generate_unique_slug(db, update_data["title"], exclude_event_id=event.id)
 
+    old_poster = event.poster_image_url
     for field, value in update_data.items():
         setattr(event, field, value)
 
@@ -205,6 +206,18 @@ def update_event(
             status_code=status.HTTP_409_CONFLICT,
             detail="An event with conflicting unique constraints already exists",
         ) from exc
+
+    # Clean up obsolete poster file if changed or cleared in PATCH
+    if "poster_image_url" in update_data and old_poster and old_poster != event.poster_image_url:
+        if old_poster.startswith("/uploads/posters/"):
+            posters_base = (settings.upload_dir_path / "posters").resolve()
+            old_rel = old_poster.removeprefix("/uploads/posters/").lstrip("/")
+            old_file = (posters_base / old_rel).resolve()
+            try:
+                if old_file.is_relative_to(posters_base) and old_file.is_file():
+                    old_file.unlink()
+            except (ValueError, OSError):
+                pass
 
     return event
 
@@ -321,6 +334,163 @@ async def upload_background_image(
     return event
 
 
+@router.post(
+    "/{id_or_slug}/poster",
+    response_model=EventResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Upload official poster image for event",
+)
+async def upload_poster_image(
+    id_or_slug: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Event:
+    """
+    Upload an official event poster image (PNG, JPEG, WebP) up to 5 MB.
+    Saves the image with a collision-safe filename to /uploads/posters/
+    and updates the event's poster_image_url.
+    """
+    event: Optional[Event] = None
+    try:
+        val_uuid = uuid.UUID(id_or_slug)
+        event = db.query(Event).filter(Event.id == val_uuid).first()
+    except ValueError:
+        event = db.query(Event).filter(Event.slug == id_or_slug).first()
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+    check_event_ownership(event, current_user)
+
+    ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
+    MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+
+    content_type = (file.content_type or "").lower()
+    if content_type not in ALLOWED_MIME_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Format non supporté (PNG, JPEG, WebP uniquement)",
+        )
+
+    contents = bytearray()
+    total_size = 0
+    while chunk := await file.read(1024 * 1024):  # 1 MB chunks
+        total_size += len(chunk)
+        if total_size > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail="L'affiche dépasse la taille maximale autorisée de 5 Mo",
+            )
+        contents.extend(chunk)
+
+    if total_size == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Le fichier téléversé est vide",
+        )
+
+    # Validate image magic bytes to prevent spoofed content types and determine safe extension
+    ext: Optional[str] = None
+    if contents.startswith(b"\x89PNG\r\n\x1a\n"):
+        ext = ".png"
+    elif contents.startswith(b"\xff\xd8\xff"):
+        ext = ".jpg"
+    elif contents.startswith(b"RIFF") and len(contents) >= 12 and contents[8:12] == b"WEBP":
+        ext = ".webp"
+
+    if not ext:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Le contenu du fichier n'est pas une image valide (PNG, JPEG, WebP attendu)",
+        )
+
+    filename = f"{uuid.uuid4().hex}{ext}"
+    posters_dir = settings.upload_dir_path / "posters"
+    posters_dir.mkdir(parents=True, exist_ok=True)
+    target_path = (posters_dir / filename).resolve()
+
+    from starlette.concurrency import run_in_threadpool
+
+    def _write_file():
+        with open(target_path, "wb") as f:
+            f.write(contents)
+
+    await run_in_threadpool(_write_file)
+
+    old_poster = event.poster_image_url
+    event.poster_image_url = f"/uploads/posters/{filename}"
+
+    try:
+        db.commit()
+        db.refresh(event)
+    except Exception as exc:
+        db.rollback()
+        if target_path.exists():
+            target_path.unlink()
+        raise exc
+
+    # Clean up prior locally uploaded poster if exists and distinct
+    if old_poster and old_poster.startswith("/uploads/posters/"):
+        posters_base = (settings.upload_dir_path / "posters").resolve()
+        old_rel = old_poster.removeprefix("/uploads/posters/").lstrip("/")
+        old_file = (posters_base / old_rel).resolve()
+        try:
+            if old_file.is_relative_to(posters_base) and old_file.is_file() and old_file != target_path:
+                old_file.unlink()
+        except (ValueError, OSError):
+            pass
+
+    return event
+
+
+@router.delete(
+    "/{id_or_slug}/poster",
+    response_model=EventResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Delete official poster image for event",
+)
+def delete_poster_image(
+    id_or_slug: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Event:
+    """Remove the official poster image associated with an event."""
+    event: Optional[Event] = None
+    try:
+        val_uuid = uuid.UUID(id_or_slug)
+        event = db.query(Event).filter(Event.id == val_uuid).first()
+    except ValueError:
+        event = db.query(Event).filter(Event.slug == id_or_slug).first()
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+    check_event_ownership(event, current_user)
+
+    old_poster = event.poster_image_url
+    event.poster_image_url = None
+
+    db.commit()
+    db.refresh(event)
+
+    if old_poster and old_poster.startswith("/uploads/posters/"):
+        posters_base = (settings.upload_dir_path / "posters").resolve()
+        old_rel = old_poster.removeprefix("/uploads/posters/").lstrip("/")
+        old_file = (posters_base / old_rel).resolve()
+        try:
+            if old_file.is_relative_to(posters_base) and old_file.is_file():
+                old_file.unlink()
+        except (ValueError, OSError):
+            pass
+
+    return event
+
+
 @router.delete(
     "/{id_or_slug}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -334,7 +504,7 @@ def delete_event(
     """
     Completely deletes an event and all of its associated records (spots, orders,
     booking items, email logs) in cascade, as well as unlinking any associated
-    floorplan background image on disk. Restricted to Super-Administrators.
+    floorplan background image or poster image on disk. Restricted to Super-Administrators.
     """
     event: Optional[Event] = None
     try:
@@ -352,21 +522,22 @@ def delete_event(
             detail="Event not found",
         )
 
-    # Clean up uploaded background floorplan image on disk safely if present
-    file_to_unlink: Optional[Path] = None
-    if event.background_image_url and event.background_image_url.startswith("/uploads/"):
-        rel_path = event.background_image_url.removeprefix("/uploads/")
-        candidate_path = (settings.upload_dir_path / rel_path).resolve()
-        try:
-            if candidate_path.is_relative_to(settings.upload_dir_path.resolve()) and candidate_path.is_file():
-                file_to_unlink = candidate_path
-        except (ValueError, OSError):
-            pass
+    # Clean up uploaded files (background image, poster image) on disk safely if present
+    files_to_unlink: list[Path] = []
+    for img_url in [event.background_image_url, event.poster_image_url]:
+        if img_url and img_url.startswith("/uploads/"):
+            rel_path = img_url.removeprefix("/uploads/")
+            candidate_path = (settings.upload_dir_path / rel_path).resolve()
+            try:
+                if candidate_path.is_relative_to(settings.upload_dir_path.resolve()) and candidate_path.is_file():
+                    files_to_unlink.append(candidate_path)
+            except (ValueError, OSError):
+                pass
 
     db.delete(event)
     db.commit()
 
-    if file_to_unlink:
+    for file_to_unlink in files_to_unlink:
         try:
             file_to_unlink.unlink()
         except OSError:

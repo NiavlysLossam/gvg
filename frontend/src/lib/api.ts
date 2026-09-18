@@ -170,6 +170,48 @@ export async function uploadBackgroundImage(eventIdOrSlug: string, file: File): 
   return response.json();
 }
 
+export async function uploadEventPoster(eventIdOrSlug: string, file: File): Promise<EventModel> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/poster`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors du téléversement de l’affiche';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function deleteEventPoster(eventIdOrSlug: string): Promise<EventModel> {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/poster`, {
+    method: 'DELETE',
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la suppression de l’affiche';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
 export async function fetchEvents(): Promise<EventListResponse> {
   const response = await authFetch(`${API_BASE}/events`);
   if (!response.ok) {

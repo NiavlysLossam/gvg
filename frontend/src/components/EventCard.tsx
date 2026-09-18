@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool, Users, Trash2 } from 'lucide-react';
+import { Calendar, Clock, MapPin, Map, ChevronRight, Layers, PenTool, Users, Trash2, Settings } from 'lucide-react';
 import { EventModel } from '../types/event';
 
 interface EventCardProps {
@@ -8,6 +8,7 @@ interface EventCardProps {
   onOpenEditor?: (event: EventModel) => void;
   onViewPublic?: (slug: string) => void;
   onOpenInscriptions?: (event: EventModel) => void;
+  onEditSettings?: (event: EventModel) => void;
   onDelete?: (event: EventModel) => void;
 }
 
@@ -17,6 +18,7 @@ export const EventCard: React.FC<EventCardProps> = ({
   onOpenEditor,
   onViewPublic,
   onOpenInscriptions,
+  onEditSettings,
   onDelete,
 }) => {
   const startDate = new Date(event.start_date);
@@ -102,6 +104,18 @@ export const EventCard: React.FC<EventCardProps> = ({
             <Map className="w-3.5 h-3.5 text-gray-500" />
             <span>Fond de plan</span>
           </button>
+
+          {onEditSettings && (
+            <button
+              type="button"
+              onClick={() => onEditSettings(event)}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold rounded-lg border border-gray-200 transition"
+              title="Modifier les paramètres et l'affiche"
+            >
+              <Settings className="w-3.5 h-3.5 text-gray-500" />
+              <span>Paramètres</span>
+            </button>
+          )}
 
           {onViewPublic && (
             <button
