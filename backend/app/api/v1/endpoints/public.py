@@ -108,6 +108,7 @@ def list_public_events(
                 description=event.description,
                 map_type=event.map_type,
                 background_image_url=event.background_image_url,
+                poster_image_url=event.poster_image_url,
                 center_latitude=event.center_latitude,
                 center_longitude=event.center_longitude,
                 default_zoom=event.default_zoom,
@@ -159,10 +160,73 @@ def get_public_event(
 ) -> PublicEventResponse:
     """
     Public unauthenticated endpoint to get event presentation metadata:
-    title, dates, hours, location address, and map background settings.
+    title, dates, hours, location address, map background settings, poster URL,
+    and real-time spot capacity (total and available spots).
     """
     event = get_public_event_by_slug(db, slug)
-    return event
+    if event.status != "published":
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Événement introuvable ou non publié",
+        )
+
+    stats = (
+        db.query(
+            func.count(Spot.id).label("total_spots"),
+            func.coalesce(
+                func.sum(
+                    case(
+                        (
+                            or_(
+                                Spot.status == "available",
+                                and_(
+                                    Spot.status == "locked",
+                                    or_(Spot.locked_until.is_(None), Spot.locked_until < func.now()),
+                                ),
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
+                0,
+            ).label("available_spots"),
+        )
+        .filter(Spot.event_id == event.id)
+        .first()
+    )
+
+    total_spots = int(stats.total_spots or 0) if stats else 0
+    available_spots = int(stats.available_spots or 0) if stats else 0
+
+    return PublicEventResponse(
+        id=event.id,
+        title=event.title,
+        slug=event.slug,
+        description=event.description,
+        map_type=event.map_type,
+        background_image_url=event.background_image_url,
+        poster_image_url=event.poster_image_url,
+        center_latitude=event.center_latitude,
+        center_longitude=event.center_longitude,
+        default_zoom=event.default_zoom,
+        price_per_meter_cents=event.price_per_meter_cents,
+        price_per_meter=event.price_per_meter,
+        start_date=event.start_date,
+        end_date=event.end_date,
+        setup_start_time=event.setup_start_time,
+        setup_end_time=event.setup_end_time,
+        public_start_time=event.public_start_time,
+        public_end_time=event.public_end_time,
+        location_address=event.location_address,
+        organizer_email=event.organizer_email,
+        rules_text=event.rules_text,
+        status=event.status,
+        total_spots=total_spots,
+        available_spots=available_spots,
+        created_at=event.created_at,
+        updated_at=event.updated_at,
+    )
 
 
 @router.get(

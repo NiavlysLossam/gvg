@@ -36,6 +36,7 @@ export interface PublicEventResponse {
   description?: string | null;
   map_type: 'geographic' | 'planar';
   background_image_url?: string | null;
+  poster_image_url?: string | null;
   center_latitude?: number | null;
   center_longitude?: number | null;
   default_zoom?: number | null;
@@ -51,6 +52,8 @@ export interface PublicEventResponse {
   organizer_email?: string | null;
   rules_text?: string | null;
   status: string;
+  total_spots?: number;
+  available_spots?: number;
   created_at?: string | null;
   updated_at?: string | null;
 }
@@ -62,6 +65,7 @@ export interface PublicEventListItem {
   description?: string | null;
   map_type: 'geographic' | 'planar';
   background_image_url?: string | null;
+  poster_image_url?: string | null;
   center_latitude?: number | null;
   center_longitude?: number | null;
   default_zoom?: number | null;

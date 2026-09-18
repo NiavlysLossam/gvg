@@ -30,6 +30,7 @@ def test_create_valid_event(client: TestClient):
         "organizer_email": "marc.organisateur@example.com",
         "price_per_meter": 4.00,
         "map_type": "geographic",
+        "poster_image_url": "https://example.com/affiche.webp",
     }
 
     response = client.post("/api/v1/events", json=payload)
@@ -45,6 +46,7 @@ def test_create_valid_event(client: TestClient):
     assert data["title"] == payload["title"]
     assert data["location_address"] == payload["location_address"]
     assert data["map_type"] == "geographic"
+    assert data["poster_image_url"] == "https://example.com/affiche.webp"
 
 
 def test_duplicate_title_collision(client: TestClient):
@@ -233,7 +235,11 @@ def test_patch_event_and_date_validation(client: TestClient):
     # 1. Successful patch: update title without self-collision
     patch_resp = client.patch(
         f"/api/v1/events/{event_id}",
-        json={"title": "Grand Marché aux Puces Rénové", "price_per_meter": 6.0},
+        json={
+            "title": "Grand Marché aux Puces Rénové",
+            "price_per_meter": 6.0,
+            "poster_image_url": "https://example.com/renove.jpg",
+        },
     )
     assert patch_resp.status_code == 200
     updated = patch_resp.json()
@@ -241,6 +247,7 @@ def test_patch_event_and_date_validation(client: TestClient):
     assert updated["slug"] == "grand-marche-aux-puces-renove"
     assert updated["price_per_meter_cents"] == 600
     assert updated["price_per_meter"] == 6.0
+    assert updated["poster_image_url"] == "https://example.com/renove.jpg"
 
     # 2. Patch with same title does not append -2 suffix (avoids self-collision)
     patch_same_title = client.patch(

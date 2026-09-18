@@ -9,6 +9,7 @@ export interface EventModel {
   description?: string | null;
   map_type: MapType;
   background_image_url?: string | null;
+  poster_image_url?: string | null;
   center_latitude?: number | null;
   center_longitude?: number | null;
   default_zoom?: number | null;
@@ -35,6 +36,7 @@ export interface EventCreateInput {
   description?: string;
   map_type: MapType;
   background_image_url?: string;
+  poster_image_url?: string;
   center_latitude?: number;
   center_longitude?: number;
   default_zoom?: number;
@@ -56,6 +58,7 @@ export interface EventUpdateInput {
   description?: string;
   map_type?: MapType;
   background_image_url?: string | null;
+  poster_image_url?: string | null;
   center_latitude?: number | null;
   center_longitude?: number | null;
   default_zoom?: number | null;

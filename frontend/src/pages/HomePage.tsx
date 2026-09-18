@@ -340,7 +340,8 @@ export const HomePage: React.FC<HomePageProps> = ({
             {filteredEvents.map((event) => {
               const hasSpots = event.available_spots > 0;
               const isFull = event.total_spots > 0 && event.available_spots === 0;
-              const hasImage = Boolean(event.background_image_url) && !failedImages[event.id];
+              const imageUrl = event.poster_image_url || event.background_image_url;
+              const hasImage = Boolean(imageUrl) && !failedImages[event.id];
 
               return (
                 <article
@@ -351,7 +352,7 @@ export const HomePage: React.FC<HomePageProps> = ({
                   <div className="relative h-44 bg-gradient-to-br from-emerald-600 via-teal-700 to-emerald-800 flex items-center justify-center overflow-hidden">
                     {hasImage ? (
                       <img
-                        src={event.background_image_url!}
+                        src={imageUrl!}
                         alt={event.title}
                         onError={() =>
                           setFailedImages((prev) => ({ ...prev, [event.id]: true }))

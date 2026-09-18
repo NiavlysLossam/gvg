@@ -14,6 +14,7 @@ def create_sample_event(
     title="Vide-Grenier Saint-Michel",
     price_per_meter=4.0,
     map_type="geographic",
+    status="published",
 ):
     now = datetime.now(timezone.utc)
     payload = {
@@ -21,6 +22,7 @@ def create_sample_event(
         "description": "Vide-grenier annuel sur la place du village",
         "map_type": map_type,
         "price_per_meter": price_per_meter,
+        "status": status,
         "start_date": (now + timedelta(days=5)).isoformat(),
         "end_date": (now + timedelta(days=5, hours=10)).isoformat(),
         "setup_start_time": "06:00",
@@ -72,6 +74,97 @@ def test_get_public_event_404_not_found(client: TestClient):
     response = client.get("/api/v1/public/events/inexistent-slug-12345")
     assert response.status_code == 404
     assert response.json()["detail"] == "Événement introuvable"
+
+
+def test_get_public_event_showcase_metadata_and_spot_counts(client: TestClient, db_session: Session):
+    """Vérifie que la page vitrine publique reçoit l'affiche officielle et les compteurs de stands réels."""
+    now = datetime.now(timezone.utc)
+    ev = Event(
+        title="Grande Braderie de Printemps",
+        slug="grande-braderie-printemps-2026",
+        description="Venez chiner parmi plus de 100 exposants locaux !",
+        map_type="geographic",
+        price_per_meter_cents=500,
+        start_date=now + timedelta(days=10),
+        end_date=now + timedelta(days=10, hours=10),
+        setup_start_time="05:30",
+        setup_end_time="07:30",
+        public_start_time="08:00",
+        public_end_time="19:00",
+        location_address="Boulevard de la Liberté, 35000 Rennes",
+        organizer_email="contact@braderie-rennes.fr",
+        rules_text="Installation dès 5h30. Buvette et restauration sur place. Véhicules interdits après 7h30.",
+        status="published",
+        poster_image_url="/uploads/events/braderie-2026/poster.webp",
+    )
+    db_session.add(ev)
+    db_session.commit()
+    db_session.refresh(ev)
+
+    # Spot 1: Available
+    s1 = Spot(
+        event_id=ev.id,
+        label="A-01",
+        linear_meters=3.0,
+        price_cents=1500,
+        geom=geojson_to_wkt_polygon(SAMPLE_POLY_COORDS),
+        status="available",
+    )
+    # Spot 2: Reserved
+    s2 = Spot(
+        event_id=ev.id,
+        label="A-02",
+        linear_meters=2.0,
+        price_cents=1000,
+        geom=geojson_to_wkt_polygon(SAMPLE_POLY_COORDS),
+        status="reserved",
+    )
+    # Spot 3: Locked but expired (should count as available)
+    s3 = Spot(
+        event_id=ev.id,
+        label="A-03",
+        linear_meters=4.0,
+        price_cents=2000,
+        geom=geojson_to_wkt_polygon(SAMPLE_POLY_COORDS),
+        status="locked",
+        locked_until=now - timedelta(minutes=5),
+    )
+    # Spot 4: Locked with active unexpired lock (must NOT count as available)
+    s4 = Spot(
+        event_id=ev.id,
+        label="A-04",
+        linear_meters=2.0,
+        price_cents=1000,
+        geom=geojson_to_wkt_polygon(SAMPLE_POLY_COORDS),
+        status="locked",
+        locked_until=now + timedelta(minutes=10),
+    )
+    # Spot 5: Blocked spot (must NOT count as available)
+    s5 = Spot(
+        event_id=ev.id,
+        label="A-05",
+        linear_meters=2.0,
+        price_cents=1000,
+        geom=geojson_to_wkt_polygon(SAMPLE_POLY_COORDS),
+        status="blocked",
+    )
+    db_session.add_all([s1, s2, s3, s4, s5])
+    db_session.commit()
+
+    response = client.get(f"/api/v1/public/events/{ev.slug}")
+    assert response.status_code == 200, response.text
+    data = response.json()
+
+    assert data["title"] == "Grande Braderie de Printemps"
+    assert data["poster_image_url"] == "/uploads/events/braderie-2026/poster.webp"
+    assert data["total_spots"] == 5
+    assert data["available_spots"] == 2  # s1 (available) + s3 (expired lock)
+    assert data["setup_start_time"] == "05:30"
+    assert data["setup_end_time"] == "07:30"
+    assert data["public_start_time"] == "08:00"
+    assert data["public_end_time"] == "19:00"
+    assert "Buvette et restauration" in data["rules_text"]
+    assert data["organizer_email"] == "contact@braderie-rennes.fr"
 
 
 def test_get_public_spots_empty(client: TestClient):
@@ -698,8 +791,11 @@ def test_session_isolation_in_cart(client: TestClient):
 
 def test_list_public_events_unauthenticated(client: TestClient, db_session: Session):
     event = create_sample_event(client, title="Public Open Event")
-    # Mark as published
-    client.patch(f"/api/v1/events/{event['id']}", json={"status": "published"})
+    # Mark as published with poster image
+    client.patch(
+        f"/api/v1/events/{event['id']}",
+        json={"status": "published", "poster_image_url": "https://example.com/poster.jpg"},
+    )
 
     # Fetch without auth header
     response = client.get("/api/v1/public/events", headers={"X-No-Auth": "1"})
@@ -714,6 +810,7 @@ def test_list_public_events_unauthenticated(client: TestClient, db_session: Sess
     assert "total_spots" in item
     assert "available_spots" in item
     assert item["price_per_meter"] == 4.0
+    assert item["poster_image_url"] == "https://example.com/poster.jpg"
 
 
 def test_list_public_events_filters_draft_and_past(client: TestClient, db_session: Session):
@@ -724,11 +821,11 @@ def test_list_public_events_filters_draft_and_past(client: TestClient, db_sessio
     client.patch(f"/api/v1/events/{e_pub['id']}", json={"status": "published"})
 
     # 2. Draft upcoming event
-    e_draft = create_sample_event(client, title="Upcoming Draft Event")
+    e_draft = create_sample_event(client, title="Upcoming Draft Event", status="draft")
     # remains draft
 
     # 3. Archived upcoming event
-    e_archived = create_sample_event(client, title="Upcoming Archived Event")
+    e_archived = create_sample_event(client, title="Upcoming Archived Event", status="draft")
     client.patch(f"/api/v1/events/{e_archived['id']}", json={"status": "archived"})
 
     # 4. Past published event directly in DB (ended yesterday)
@@ -753,6 +850,22 @@ def test_list_public_events_filters_draft_and_past(client: TestClient, db_sessio
     assert e_draft["id"] not in returned_ids
     assert e_archived["id"] not in returned_ids
     assert str(e_past.id) not in returned_ids
+
+
+def test_get_public_event_draft_or_archived_returns_404(client: TestClient):
+    """Vérifie que les événements draft et archived ne sont jamais exposés publiquement."""
+    # Draft event
+    e_draft = create_sample_event(client, title="Draft Private Event", status="draft")
+    res_draft = client.get(f"/api/v1/public/events/{e_draft['slug']}")
+    assert res_draft.status_code == 404
+    assert res_draft.json()["detail"] == "Événement introuvable ou non publié"
+
+    # Archived event
+    e_archived = create_sample_event(client, title="Archived Private Event", status="draft")
+    client.patch(f"/api/v1/events/{e_archived['id']}", json={"status": "archived"})
+    res_archived = client.get(f"/api/v1/public/events/{e_archived['slug']}")
+    assert res_archived.status_code == 404
+    assert res_archived.json()["detail"] == "Événement introuvable ou non publié"
 
 
 def test_list_public_events_spot_availability_aggregation(client: TestClient, db_session: Session):

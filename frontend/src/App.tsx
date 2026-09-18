@@ -24,6 +24,7 @@ import { MapCalibration } from './components/MapCalibration';
 import { SpotEditor } from './components/SpotEditor';
 import { RegistrationsPage } from './pages/RegistrationsPage';
 import { PublicEventPage } from './pages/PublicEventPage';
+import { EventShowcasePage } from './pages/EventShowcasePage';
 import { ReservationPage } from './pages/ReservationPage';
 import { ConfirmationPage } from './pages/ConfirmationPage';
 import { CancellationPage } from './pages/CancellationPage';
@@ -32,7 +33,7 @@ import { DeleteEventModal } from './components/DeleteEventModal';
 
 interface PublicRouteState {
   slug: string;
-  view: 'map' | 'reservation' | 'confirmation' | 'cancellation';
+  view: 'showcase' | 'map' | 'reservation' | 'confirmation' | 'cancellation';
   orderId?: string;
 }
 
@@ -132,16 +133,25 @@ function parsePublicRoute(): PublicRouteState | null {
       };
     }
 
-    // 2. Pathname: /e/:slug, /events/:slug, /e/:slug/map, or /events/:slug/map
-    const publicMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)(?:\/map)?\/?$/);
-    if (publicMatch && publicMatch[1]) {
+    // 2. Pathname: /e/:slug/map or /events/:slug/map
+    const mapMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)\/map\/?$/);
+    if (mapMatch && mapMatch[1]) {
       return {
-        slug: decodeURIComponent(publicMatch[1]),
+        slug: decodeURIComponent(mapMatch[1]),
         view: 'map',
       };
     }
 
-    // 3. Hash routing fallback
+    // 3. Pathname: /e/:slug or /events/:slug (Showcase)
+    const showcaseMatch = pathname.match(/^\/(?:e|events)\/([^/?#]+)\/?$/);
+    if (showcaseMatch && showcaseMatch[1]) {
+      return {
+        slug: decodeURIComponent(showcaseMatch[1]),
+        view: 'showcase',
+      };
+    }
+
+    // 4. Hash routing fallback
     const hash = window.location.hash;
     const hashConfMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)\/confirmation\/([^/?#]+)\/?(?:\?.*)?$/);
     if (hashConfMatch && hashConfMatch[1] && hashConfMatch[2]) {
@@ -166,11 +176,18 @@ function parsePublicRoute(): PublicRouteState | null {
         view: 'reservation',
       };
     }
-    const hashMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)(?:\/map)?\/?$/);
-    if (hashMatch && hashMatch[1]) {
+    const hashMapMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)\/map\/?$/);
+    if (hashMapMatch && hashMapMatch[1]) {
       return {
-        slug: decodeURIComponent(hashMatch[1]),
+        slug: decodeURIComponent(hashMapMatch[1]),
         view: 'map',
+      };
+    }
+    const hashShowcaseMatch = hash.match(/^#\/(?:e|events)\/([^/?#]+)\/?$/);
+    if (hashShowcaseMatch && hashShowcaseMatch[1]) {
+      return {
+        slug: decodeURIComponent(hashShowcaseMatch[1]),
+        view: 'showcase',
       };
     }
 
@@ -194,10 +211,21 @@ function parsePublicRoute(): PublicRouteState | null {
           orderId: orderIdParam,
         };
       }
-      const isRes = viewParam === 'reservation' || params.has('reservation');
+      if (viewParam === 'reservation' || params.has('reservation')) {
+        return {
+          slug: slugParam,
+          view: 'reservation',
+        };
+      }
+      if (viewParam === 'map' || params.has('map')) {
+        return {
+          slug: slugParam,
+          view: 'map',
+        };
+      }
       return {
         slug: slugParam,
-        view: isRes ? 'reservation' : 'map',
+        view: 'showcase',
       };
     }
   } catch {
@@ -261,6 +289,13 @@ const AppContent: React.FC = () => {
 
   const navigateToPublic = (slug: string) => {
     window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}`);
+    setPublicRoute({ slug, view: 'showcase' });
+    setIsAdminRoute(false);
+    setIsLoginRoute(false);
+  };
+
+  const navigateToMap = (slug: string) => {
+    window.history.pushState({}, '', `/e/${encodeURIComponent(slug)}/map`);
     setPublicRoute({ slug, view: 'map' });
     setIsAdminRoute(false);
     setIsLoginRoute(false);
@@ -401,7 +436,7 @@ const AppContent: React.FC = () => {
         <CancellationPage
           slug={publicRoute.slug}
           orderId={publicRoute.orderId}
-          onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
+          onNavigateToMap={() => navigateToMap(publicRoute.slug)}
           onNavigateToConfirmation={(token) =>
             navigateToConfirmation(publicRoute.slug, publicRoute.orderId!, token)
           }
@@ -414,7 +449,7 @@ const AppContent: React.FC = () => {
         <ConfirmationPage
           slug={publicRoute.slug}
           orderId={publicRoute.orderId}
-          onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
+          onNavigateToMap={() => navigateToMap(publicRoute.slug)}
           onNavigateHome={navigateHome}
           onNavigateToCancellation={(orderId, token) =>
             navigateToCancellation(publicRoute.slug, orderId, token)
@@ -426,9 +461,19 @@ const AppContent: React.FC = () => {
       return (
         <ReservationPage
           slug={publicRoute.slug}
-          onNavigateToMap={() => navigateToPublic(publicRoute.slug)}
+          onNavigateToMap={() => navigateToMap(publicRoute.slug)}
           onNavigateHome={navigateHome}
           onNavigateToConfirmation={navigateToConfirmation}
+        />
+      );
+    }
+    if (publicRoute.view === 'showcase') {
+      return (
+        <EventShowcasePage
+          slug={publicRoute.slug}
+          onNavigateToMap={() => navigateToMap(publicRoute.slug)}
+          onNavigateToReservation={() => navigateToReservation(publicRoute.slug)}
+          onNavigateHome={navigateHome}
         />
       );
     }
@@ -436,6 +481,7 @@ const AppContent: React.FC = () => {
       <PublicEventPage
         slug={publicRoute.slug}
         onNavigateHome={navigateHome}
+        onNavigateToShowcase={() => navigateToPublic(publicRoute.slug)}
         onNavigateToReservation={() => navigateToReservation(publicRoute.slug)}
       />
     );

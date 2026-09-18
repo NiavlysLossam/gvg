@@ -11,6 +11,7 @@ import { SpotDetailDrawer } from '../components/public/SpotDetailDrawer';
 interface PublicEventPageProps {
   slug: string;
   onNavigateHome?: () => void;
+  onNavigateToShowcase?: () => void;
   onNavigateToReservation?: () => void;
 }
 
@@ -36,6 +37,7 @@ function extractErrorDetail(err: any, defaultMsg: string): string {
 export const PublicEventPage: React.FC<PublicEventPageProps> = ({
   slug,
   onNavigateHome,
+  onNavigateToShowcase,
   onNavigateToReservation,
 }) => {
   const [event, setEvent] = useState<PublicEventResponse | null>(null);
@@ -400,6 +402,7 @@ export const PublicEventPage: React.FC<PublicEventPageProps> = ({
           event={event}
           onRefresh={pollSpots}
           isRefreshing={isRefreshing}
+          onNavigateToShowcase={onNavigateToShowcase}
         />
       )}
 

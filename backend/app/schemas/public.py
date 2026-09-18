@@ -82,6 +82,7 @@ class PublicEventResponse(BaseModel):
     description: Optional[str] = None
     map_type: Literal["geographic", "planar"] = "geographic"
     background_image_url: Optional[str] = None
+    poster_image_url: Optional[str] = None
     center_latitude: Optional[float] = None
     center_longitude: Optional[float] = None
     default_zoom: Optional[int] = None
@@ -99,6 +100,8 @@ class PublicEventResponse(BaseModel):
     organizer_email: Optional[str] = None
     rules_text: Optional[str] = None
     status: str = "published"
+    total_spots: int = 0
+    available_spots: int = 0
     
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
@@ -141,6 +144,7 @@ class PublicEventListItem(BaseModel):
     description: Optional[str] = None
     map_type: Literal["geographic", "planar"] = "geographic"
     background_image_url: Optional[str] = None
+    poster_image_url: Optional[str] = None
     center_latitude: Optional[float] = None
     center_longitude: Optional[float] = None
     default_zoom: Optional[int] = None

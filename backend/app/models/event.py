@@ -19,6 +19,7 @@ class Event(Base):
     description = Column(Text, nullable=True)
     map_type = Column(String(50), nullable=False, default="geographic")
     background_image_url = Column(String(1024), nullable=True)
+    poster_image_url = Column(String(1024), nullable=True)
     center_latitude = Column(Float, nullable=True)
     center_longitude = Column(Float, nullable=True)
     default_zoom = Column(Integer, nullable=True, default=16)

@@ -1,11 +1,12 @@
 import React from 'react';
-import { Calendar, Clock, MapPin, Tag, RefreshCw } from 'lucide-react';
+import { Calendar, Clock, MapPin, Tag, RefreshCw, ArrowLeft } from 'lucide-react';
 import { PublicEventResponse } from '../../types/public';
 
 interface PublicHeaderProps {
   event: PublicEventResponse;
   onRefresh?: () => void;
   isRefreshing?: boolean;
+  onNavigateToShowcase?: () => void;
 }
 
 function formatDateRange(startDateStr: string, endDateStr: string): string {
@@ -45,6 +46,7 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
   event,
   onRefresh,
   isRefreshing = false,
+  onNavigateToShowcase,
 }) => {
   const dateDisplay = formatDateRange(event.start_date, event.end_date);
   const hoursDisplay =
@@ -57,7 +59,19 @@ export const PublicHeader: React.FC<PublicHeaderProps> = ({
       <div className="max-w-7xl mx-auto px-3 sm:px-6 py-3 sm:py-4">
         {/* Top brand row */}
         <div className="flex items-center justify-between gap-2 mb-2 sm:mb-3">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 sm:gap-3">
+            {onNavigateToShowcase && (
+              <button
+                type="button"
+                onClick={onNavigateToShowcase}
+                className="inline-flex items-center gap-1.5 py-1 px-2.5 rounded-lg border border-gray-200 bg-white text-gray-700 hover:text-emerald-700 hover:border-emerald-300 text-xs font-semibold shadow-xs transition"
+                title="Consulter la présentation et l'affiche de l'événement"
+              >
+                <ArrowLeft className="w-3.5 h-3.5 text-gray-500" />
+                <span className="hidden sm:inline">Présentation &amp; Affiche</span>
+                <span className="sm:hidden">Affiche</span>
+              </button>
+            )}
             <div className="w-8 h-8 rounded-lg bg-emerald-700 text-white flex items-center justify-center font-extrabold text-sm shadow-xs">
               GVG
             </div>

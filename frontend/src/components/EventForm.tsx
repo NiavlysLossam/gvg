@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Calendar, Clock, MapPin, Euro, Mail, FileText, CheckCircle2, AlertCircle, ShieldCheck } from 'lucide-react';
+import { Calendar, Clock, MapPin, Euro, Mail, FileText, CheckCircle2, AlertCircle, ShieldCheck, Image as ImageIcon } from 'lucide-react';
 import { EventCreateInput, EventModel } from '../types/event';
 import { createEvent, ApiError } from '../lib/api';
 
@@ -12,6 +12,7 @@ export const EventForm: React.FC<EventFormProps> = ({ onSuccess }) => {
     title: '',
     description: '',
     map_type: 'geographic',
+    poster_image_url: '',
     start_date: '',
     end_date: '',
     setup_start_time: '06:00',
@@ -46,6 +47,7 @@ export const EventForm: React.FC<EventFormProps> = ({ onSuccess }) => {
     try {
       const created = await createEvent({
         ...formData,
+        poster_image_url: formData.poster_image_url?.trim() || undefined,
         start_date: new Date(formData.start_date).toISOString(),
         end_date: new Date(formData.end_date).toISOString(),
       });
@@ -269,6 +271,24 @@ export const EventForm: React.FC<EventFormProps> = ({ onSuccess }) => {
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
           />
         </div>
+      </div>
+
+      {/* Affiche officielle */}
+      <div className="pt-4 border-t border-gray-100">
+        <label className="block text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
+          <ImageIcon className="w-4 h-4 text-emerald-600" />
+          Affiche officielle de l'événement (URL de l'image)
+        </label>
+        <input
+          type="url"
+          value={formData.poster_image_url || ''}
+          onChange={(e) => setFormData({ ...formData, poster_image_url: e.target.value })}
+          placeholder="https://mon-site.fr/images/affiche-vide-grenier-2026.jpg"
+          className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          L'affiche sera affichée en grand format sur la page vitrine publique de votre événement.
+        </p>
       </div>
 
       {/* Règlement intérieur */}

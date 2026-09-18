@@ -44,6 +44,7 @@ def test_alembic_migrations_upgrade_and_downgrade():
         assert "center_longitude" in columns
         assert "default_zoom" in columns
         assert "owner_id" in columns
+        assert "poster_image_url" in columns
 
         user_columns = [c["name"] for c in inspector.get_columns("users")]
         assert "id" in user_columns
