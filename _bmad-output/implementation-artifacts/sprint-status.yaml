@@ -56,8 +56,8 @@ development_status:
   7-4-moteur-duplication-vide-grenier-edition-suivante: done
   epic-7-retrospective: optional
 
-  epic-8: backlog
-  8-1-decoupage-onglets-gestion-inscriptions: backlog
+  epic-8: in-progress
+  8-1-decoupage-onglets-gestion-inscriptions: in-progress
   8-2-fiche-detaillee-inscription-modifiable-notes-internes: backlog
   8-3-verrouillage-strict-prix-stands-reserves: backlog
   8-4-integration-flux-cartographiques-wms-ign-saisie-libre: backlog

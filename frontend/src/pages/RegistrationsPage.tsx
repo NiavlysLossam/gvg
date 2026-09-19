@@ -1,8 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   ArrowLeft,
-  PlusCircle,
-  Search,
   RefreshCw,
   AlertCircle,
   CheckCircle2,
@@ -10,13 +8,11 @@ import {
   Banknote,
   Gift,
   CreditCard,
-  Users,
   Layers,
   FileText,
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  Clock,
   Check,
   X,
   XCircle,
@@ -24,10 +20,10 @@ import {
   RotateCcw,
   AlertTriangle,
   Mail,
-  Download,
   ChevronDown,
   FileSpreadsheet,
   Printer,
+  PlusCircle,
 } from 'lucide-react';
 import { EventModel } from '../types/event';
 import {
@@ -45,13 +41,15 @@ import {
   refundOrder,
   rejectCancellationRequest,
   cancelAndRefundAllEventOrders,
-  getAdminAttestationPdfUrl,
   getAdminCheckinPdfUrl,
   getAdminCheckinXlsxUrl,
 } from '../lib/api';
-import { ManualBookingModal } from '../components/ManualBookingModal';
-import { RemindersCard } from '../components/RemindersCard';
 import { BroadcastModal } from '../components/BroadcastModal';
+import { RegistrationsTabId } from './registrations/types';
+import { RegistrationsTab, SortField, SortOrder } from './registrations/RegistrationsTab';
+import { GuichetTab } from './registrations/GuichetTab';
+import { ModerationTab } from './registrations/ModerationTab';
+import { CommunicationsTab } from './registrations/CommunicationsTab';
 
 interface RegistrationsPageProps {
   event: EventModel;
@@ -59,15 +57,33 @@ interface RegistrationsPageProps {
   onOpenEditor?: () => void;
 }
 
-type SortField = 'date' | 'name' | 'stand' | 'amount' | 'status';
-type SortOrder = 'asc' | 'desc';
+function getInitialTab(): RegistrationsTabId {
+  if (typeof window === 'undefined') return 'inscriptions';
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    if (
+      tab === 'guichet' ||
+      tab === 'moderation' ||
+      tab === 'communications' ||
+      tab === 'inscriptions'
+    ) {
+      return tab;
+    }
+  } catch {
+    // fallback
+  }
+  return 'inscriptions';
+}
 
 export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   event,
   onBack,
   onOpenEditor,
 }) => {
+  const [activeTab, setActiveTab] = useState<RegistrationsTabId>(getInitialTab());
   const [orders, setOrders] = useState<AdminOrder[]>([]);
+  const [allOrders, setAllOrders] = useState<AdminOrder[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,8 +103,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
 
-  // Actions & Modals
-  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
+  // Modals & Action loading state
   const [approveModalOrder, setApproveModalOrder] = useState<AdminOrder | null>(null);
   const [rejectModalOrder, setRejectModalOrder] = useState<AdminOrder | null>(null);
   const [rejectReason, setRejectReason] = useState<string>('');
@@ -116,9 +131,33 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
   const [isExportMenuOpen, setIsExportMenuOpen] = useState<boolean>(false);
   const exportMenuRef = React.useRef<HTMLDivElement>(null);
 
+  // Listen to popstate to sync back/forward navigation
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(event.target as Node)) {
+    const handlePopState = () => {
+      setActiveTab(getInitialTab());
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
+  const handleTabChange = (tab: RegistrationsTabId) => {
+    setActiveTab(tab);
+    try {
+      const url = new URL(window.location.href);
+      if (tab === 'inscriptions') {
+        url.searchParams.delete('tab');
+      } else {
+        url.searchParams.set('tab', tab);
+      }
+      window.history.pushState({}, '', url.toString());
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
         setIsExportMenuOpen(false);
       }
     };
@@ -150,11 +189,13 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
     setLoading(true);
     setError(null);
     try {
-      const [orderRes, statsRes] = await Promise.all([
+      const [orderRes, allOrdersRes, statsRes] = await Promise.all([
         fetchEventOrders(event.id, statusFilter, debouncedSearch),
+        fetchEventOrders(event.id),
         fetchEventDashboardStats(event.id),
       ]);
       setOrders(orderRes.items);
+      setAllOrders(allOrdersRes.items);
       setStats(orderRes.stats || statsRes);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Erreur lors du chargement des inscriptions');
@@ -255,13 +296,6 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
     ) : (
       <ArrowDown className="w-3 h-3 text-emerald-600 inline ml-1" />
     );
-  };
-
-  const handleManualBookingSuccess = (orderNumber: string) => {
-    setIsModalOpen(false);
-    setToastMessage(`Réservation manuelle n° ${orderNumber} enregistrée avec succès !`);
-    setTimeout(() => setToastMessage(null), 6000);
-    loadData();
   };
 
   const handleToggleModeration = async () => {
@@ -464,12 +498,12 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
     }
   };
 
-  // Occupancy bar calculation
-  const totalSpots = stats?.total_spots || 0;
-  const reservedSpots = stats?.reserved_spots || 0;
-  const lockedSpots = stats?.locked_spots || 0;
-  const reservedPct = totalSpots > 0 ? (reservedSpots / totalSpots) * 100 : 0;
-  const lockedPct = totalSpots > 0 ? (lockedSpots / totalSpots) * 100 : 0;
+  // Badges counters
+  const pendingActionCount =
+    (stats?.pending_approval_orders_count ?? 0) +
+    (stats?.cancellation_requested_orders_count ?? 0);
+  const offlineCount = stats?.offline_orders_count ?? 0;
+  const totalCount = stats?.total_orders_count ?? orders.length;
 
   return (
     <div className="space-y-6">
@@ -493,103 +527,39 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               </span>
             </div>
             <p className="text-xs sm:text-sm text-gray-500 mt-0.5">
-              Suivi en temps réel du remplissage et enregistrement des règlements manuels au guichet.
+              Pilotage des réservations, saisie au guichet, arbitrage et communications.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2 self-end sm:self-auto">
-          {/* Moderation switch toggle */}
-          <div className="flex items-center gap-2.5 bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-xl">
-            <ShieldCheck className={`w-4 h-4 ${isModerated ? 'text-emerald-600' : 'text-gray-400'}`} />
-            <div className="flex flex-col text-left">
-              <span className="text-[11px] font-bold text-gray-800 leading-tight">Modération</span>
-              <span className={`text-[10px] leading-tight font-medium ${isModerated ? 'text-emerald-600' : 'text-gray-400'}`}>
-                {isModerated ? 'Active' : 'Désactivée'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={handleToggleModeration}
-              disabled={updatingModeration}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                isModerated ? 'bg-emerald-600' : 'bg-gray-300'
-              } ${updatingModeration ? 'opacity-50 cursor-not-allowed' : ''}`}
-              title={
-                isModerated
-                  ? 'Désactiver la modération (les paiements CB seront encaissés automatiquement)'
-                  : 'Activer la modération (les paiements CB feront l’objet d’une pré-autorisation avant validation)'
-              }
-            >
-              <span
-                aria-hidden="true"
-                className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
-                  isModerated ? 'translate-x-4' : 'translate-x-0'
-                }`}
-              />
-            </button>
-          </div>
-
           {onOpenEditor && (
             <button
               onClick={onOpenEditor}
-              className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition flex items-center gap-1.5"
+              className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-xl transition flex items-center gap-1.5 shadow-xs"
             >
               <Layers className="w-4 h-4 text-gray-500" />
-              <span>Voir le plan</span>
+              <span className="hidden sm:inline">Voir le plan</span>
             </button>
           )}
-
-          {currentEventStatus !== 'cancelled' ? (
-            <button
-              onClick={() => {
-                setIsBulkCancelModalOpen(true);
-                setBulkConfirmationText('');
-                setBulkCancelReason('');
-                setModalError(null);
-                setBulkCancelReport(null);
-              }}
-              className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition flex items-center gap-1.5"
-              title="Annuler l'événement d'urgence et rembourser tous les inscrits (force majeure / météo)"
-            >
-              <AlertTriangle className="w-4 h-4 text-red-600" />
-              <span>Annuler l'événement</span>
-            </button>
-          ) : (
-            <span className="px-3 py-1.5 text-xs font-bold text-red-800 bg-red-100 border border-red-300 rounded-xl flex items-center gap-1.5">
-              <XCircle className="w-4 h-4 text-red-600" />
-              <span>Événement Annulé</span>
-            </span>
-          )}
-
-          <button
-            onClick={() => setIsBroadcastModalOpen(true)}
-            disabled={currentEventStatus === 'cancelled'}
-            className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition flex items-center gap-1.5 shadow-2xs disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Diffuser un e-mail avec variables dynamiques aux exposants"
-          >
-            <Mail className="w-4 h-4 text-emerald-600" />
-            <span>Diffuser un e-mail</span>
-            {selectedOrderIds.size > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-emerald-600 text-white">
-                {selectedOrderIds.size}
-              </span>
-            )}
-          </button>
 
           {/* Check-in Export Dropdown */}
           <div className="relative" ref={exportMenuRef}>
             <button
               type="button"
               onClick={() => setIsExportMenuOpen((prev) => !prev)}
-              className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition flex items-center gap-1.5 shadow-2xs"
+              className="px-3.5 py-2 text-xs sm:text-sm font-semibold text-gray-700 bg-white hover:bg-gray-50 border border-gray-300 rounded-xl transition flex items-center gap-1.5 shadow-xs"
               title="Télécharger la feuille d'émargement officielle pour le jour J"
               aria-expanded={isExportMenuOpen}
               aria-haspopup="true"
             >
               <Printer className="w-4 h-4 text-emerald-600" />
               <span>Émargement</span>
-              <ChevronDown className={`w-3.5 h-3.5 text-gray-500 transition-transform ${isExportMenuOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                className={`w-3.5 h-3.5 text-gray-500 transition-transform ${
+                  isExportMenuOpen ? 'rotate-180' : ''
+                }`}
+              />
             </button>
 
             {isExportMenuOpen && (
@@ -663,15 +633,13 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             )}
           </div>
 
-
           <button
-            onClick={() => setIsModalOpen(true)}
-            disabled={currentEventStatus === 'cancelled'}
-            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition flex items-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
-            title={currentEventStatus === 'cancelled' ? "Impossible d'ajouter des inscriptions sur un événement annulé" : undefined}
+            onClick={() => handleTabChange('guichet')}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs sm:text-sm font-bold rounded-xl shadow-sm transition flex items-center gap-2"
+            title="Ouvrir le formulaire de saisie rapide sur place"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>Saisie Hors-Ligne</span>
+            <span>Guichet</span>
           </button>
         </div>
       </div>
@@ -699,684 +667,263 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0" />
             <span className="text-sm font-medium">{error}</span>
           </div>
-          <button onClick={loadData} className="text-xs font-bold text-red-700 hover:underline">
+          <button
+            onClick={loadData}
+            className="text-xs font-bold text-red-700 hover:underline"
+          >
             Réessayer
           </button>
         </div>
       )}
 
-      {/* Reminders Status & Triggers */}
-      <RemindersCard eventIdOrSlug={event.id} />
-
-      {/* Jauge de remplissage épurée */}
-      <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm space-y-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Jauge de remplissage
-            </span>
-            <div className="text-xl font-black text-gray-900 flex items-center gap-2 mt-0.5">
-              <span>
-                {reservedSpots} / {totalSpots} stands réservés
-              </span>
-              <span className="text-sm font-bold px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
-                {stats?.occupancy_rate ?? 0}%
-              </span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-4 text-xs font-medium text-gray-500">
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-xs bg-emerald-500" />
-              <span>Réservés ({reservedSpots})</span>
-            </div>
-            {lockedSpots > 0 && (
-              <div className="flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-xs bg-amber-400" />
-                <span>En cours ({lockedSpots})</span>
-              </div>
-            )}
-            <div className="flex items-center gap-1.5">
-              <span className="w-3 h-3 rounded-xs bg-gray-200" />
-              <span>Disponibles ({stats?.available_spots ?? 0})</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="w-full h-4 bg-gray-100 rounded-full overflow-hidden flex shadow-inner">
-          <div
-            style={{ width: `${reservedPct}%` }}
-            className="bg-emerald-500 transition-all duration-500"
-            title={`Réservés : ${reservedSpots} stands (${reservedPct.toFixed(1)}%)`}
-          />
-          <div
-            style={{ width: `${lockedPct}%` }}
-            className="bg-amber-400 transition-all duration-500"
-            title={`En cours de réservation : ${lockedSpots} stands (${lockedPct.toFixed(1)}%)`}
-          />
-        </div>
-      </div>
-
-      {/* KPI Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Total Revenue */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Chiffre d'affaires total
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
-              €
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-gray-900">
-              {(stats?.total_revenue ?? 0).toFixed(2)} €
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              Cumul des ventes en ligne et hors-ligne
-            </div>
-          </div>
-        </div>
-
-        {/* Stripe Revenue */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">
-              En ligne (Stripe)
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-              <CreditCard className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-emerald-800">
-              {(stats?.stripe_revenue ?? 0).toFixed(2)} €
-            </div>
-            <div className="text-xs text-emerald-600 mt-1">Paiements par carte bancaire</div>
-          </div>
-        </div>
-
-        {/* Offline Revenue */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-indigo-700">
-              Hors-ligne (Guichet)
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-              <Banknote className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-indigo-900">
-              {(stats?.offline_revenue ?? 0).toFixed(2)} €
-            </div>
-            <div className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-              <span>Chèques: {(stats?.offline_check_revenue ?? 0).toFixed(0)}€</span>
-              <span>&bull;</span>
-              <span>Espèces: {(stats?.offline_cash_revenue ?? 0).toFixed(0)}€</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Total Registrations */}
-        <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-sm flex flex-col justify-between">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold uppercase tracking-wider text-gray-400">
-              Exposants inscrits
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-gray-50 text-gray-600 flex items-center justify-center">
-              <Users className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="mt-3">
-            <div className="text-2xl font-black text-gray-900">
-              {stats?.confirmed_orders_count ?? 0}
-            </div>
-            <div className="text-xs text-gray-500 mt-1">
-              dont {stats?.offline_orders_count ?? 0} inscription(s) hors-ligne
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4">
-        {/* Status Tabs */}
-        <div className="flex items-center gap-1.5 p-1 bg-gray-100 rounded-xl w-full sm:w-auto overflow-x-auto">
+      {/* Horizontal Tabs Navigation Bar */}
+      <div className="border-b border-gray-200 bg-white px-4 rounded-2xl shadow-xs">
+        <nav role="tablist" className="flex space-x-2 sm:space-x-4 overflow-x-auto" aria-label="Onglets de gestion des inscriptions">
           <button
-            onClick={() => setStatusFilter('all')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'all'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
+            type="button"
+            role="tab"
+            id="tab-inscriptions"
+            aria-selected={activeTab === 'inscriptions'}
+            aria-controls="panel-inscriptions"
+            onClick={() => handleTabChange('inscriptions')}
+            className={`py-3.5 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'inscriptions'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            Tous ({stats?.total_orders_count ?? 0})
+            <FileText className="w-4 h-4" />
+            <span>1. Inscriptions</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                activeTab === 'inscriptions'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {totalCount}
+            </span>
           </button>
+
           <button
-            onClick={() => setStatusFilter('pending_approval')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
-              statusFilter === 'pending_approval'
-                ? 'bg-white text-amber-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
+            type="button"
+            role="tab"
+            id="tab-guichet"
+            aria-selected={activeTab === 'guichet'}
+            aria-controls="panel-guichet"
+            onClick={() => handleTabChange('guichet')}
+            className={`py-3.5 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'guichet'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
             }`}
           >
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
-            <span>À valider</span>
-            {(stats?.pending_approval_orders_count ?? 0) > 0 ? (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
-                {stats?.pending_approval_orders_count}
+            <Banknote className="w-4 h-4" />
+            <span>2. Guichet sur place</span>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                activeTab === 'guichet'
+                  ? 'bg-emerald-100 text-emerald-800'
+                  : 'bg-gray-100 text-gray-600'
+              }`}
+            >
+              {offlineCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            role="tab"
+            id="tab-moderation"
+            aria-selected={activeTab === 'moderation'}
+            aria-controls="panel-moderation"
+            onClick={() => handleTabChange('moderation')}
+            className={`py-3.5 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'moderation'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>3. Modération & Litiges</span>
+            {pendingActionCount > 0 ? (
+              <span className="px-2 py-0.5 rounded-full text-xs font-black bg-amber-500 text-white animate-pulse">
+                {pendingActionCount}
               </span>
             ) : (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-200 text-gray-700">
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs font-bold ${
+                  activeTab === 'moderation'
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-gray-100 text-gray-600'
+                }`}
+              >
                 0
               </span>
             )}
           </button>
-          <button
-            onClick={() => setStatusFilter('confirmed')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap ${
-              statusFilter === 'confirmed'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            Confirmés ({stats?.confirmed_orders_count ?? 0})
-          </button>
-          <button
-            onClick={() => setStatusFilter('cancellation_requested')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
-              statusFilter === 'cancellation_requested'
-                ? 'bg-white text-amber-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <Clock className="w-3.5 h-3.5 text-amber-600" />
-            <span>Annulations demandées</span>
-            {(stats?.cancellation_requested_orders_count ?? 0) > 0 ? (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] font-black bg-amber-500 text-white animate-pulse">
-                {stats?.cancellation_requested_orders_count}
-              </span>
-            ) : (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-200 text-gray-700">
-                0
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setStatusFilter('refunded')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
-              statusFilter === 'refunded'
-                ? 'bg-white text-purple-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
-            <span>Remboursés</span>
-            {(stats?.refunded_orders_count ?? 0) > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-purple-100 text-purple-800">
-                {stats?.refunded_orders_count}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setStatusFilter('cancelled')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
-              statusFilter === 'cancelled'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <XCircle className="w-3.5 h-3.5 text-gray-500" />
-            <span>Annulés</span>
-            {(stats?.cancelled_orders_count ?? 0) > 0 && (
-              <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-gray-100 text-gray-700">
-                {stats?.cancelled_orders_count}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setStatusFilter('offline')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1 ${
-              statusFilter === 'offline'
-                ? 'bg-white text-indigo-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <span>Hors-ligne</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-100 text-indigo-800">
-              {stats?.offline_orders_count ?? 0}
-            </span>
-          </button>
-          <button
-            onClick={() => setStatusFilter('pending')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
-              statusFilter === 'pending'
-                ? 'bg-white text-gray-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <span>Transactions non abouties</span>
-            <span className="px-1.5 py-0.5 rounded-full text-[10px] bg-amber-100 text-amber-800">
-              {stats?.pending_orders_count ?? 0}
-            </span>
-          </button>
-          <button
-            onClick={() => setStatusFilter('rejected')}
-            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap flex items-center gap-1.5 ${
-              statusFilter === 'rejected'
-                ? 'bg-white text-red-900 shadow-sm'
-                : 'text-gray-500 hover:text-gray-900'
-            }`}
-          >
-            <XCircle className="w-3.5 h-3.5 text-red-500" />
-            <span>Refusés</span>
-          </button>
-        </div>
 
-        {/* Search Input */}
-        <div className="relative w-full sm:w-72">
-          <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Rechercher nom, stand, email..."
-            className="w-full pl-9 pr-8 py-2 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs font-bold"
-            >
-              &times;
-            </button>
-          )}
-        </div>
+          <button
+            type="button"
+            role="tab"
+            id="tab-communications"
+            aria-selected={activeTab === 'communications'}
+            aria-controls="panel-communications"
+            onClick={() => handleTabChange('communications')}
+            className={`py-3.5 px-3 sm:px-4 border-b-2 font-bold text-xs sm:text-sm transition flex items-center gap-2 whitespace-nowrap ${
+              activeTab === 'communications'
+                ? 'border-emerald-600 text-emerald-800'
+                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+            }`}
+          >
+            <Mail className="w-4 h-4" />
+            <span>4. Communications</span>
+          </button>
+        </nav>
       </div>
 
-      {/* Orders Table */}
-      <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-        {loading && orders.length === 0 ? (
-          <div className="py-20 text-center text-gray-500">
-            <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-3 text-emerald-600" />
-            <p className="text-sm">Chargement des inscriptions...</p>
-          </div>
-        ) : orders.length === 0 ? (
-          <div className="py-16 text-center text-gray-500 space-y-3">
-            <FileText className="w-10 h-10 text-gray-300 mx-auto" />
-            <div className="text-base font-bold text-gray-700">Aucune inscription trouvée</div>
-            <p className="text-xs text-gray-400 max-w-sm mx-auto">
-              {searchQuery
-                ? `Aucun résultat ne correspond à la recherche « ${searchQuery} ».`
-                : 'Aucune commande enregistrée pour le moment dans cet événement.'}
-            </p>
-            <button
-              onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition mt-2"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>Ajouter une réservation manuelle</span>
-            </button>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            {selectedOrderIds.size > 0 && (
-              <div className="bg-emerald-50 border-b border-emerald-200 px-4 py-2.5 flex items-center justify-between text-xs text-emerald-900 animate-fade-in">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold">{selectedOrderIds.size}</span>
-                  <span>
-                    inscription{selectedOrderIds.size > 1 ? 's' : ''} sélectionnée{selectedOrderIds.size > 1 ? 's' : ''}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setSelectedOrderIds(new Set())}
-                    className="px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-emerald-900 transition"
-                  >
-                    Désélectionner tout
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsBroadcastModalOpen(true)}
-                    className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg transition flex items-center gap-1.5 shadow-xs"
-                  >
-                    <Mail className="w-3.5 h-3.5" />
-                    <span>Diffuser à la sélection ({selectedOrderIds.size})</span>
-                  </button>
-                </div>
-              </div>
-            )}
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-gray-50/80 border-b border-gray-200 text-gray-500 font-bold uppercase tracking-wider text-[11px]">
-                  <th className="py-3.5 px-3 w-10 text-center select-none">
-                    <input
-                      type="checkbox"
-                      checked={isAllConfirmedSelected}
-                      onChange={handleToggleSelectAll}
-                      className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
-                      title="Sélectionner / Désélectionner toutes les commandes confirmées affichées"
-                    />
-                  </th>
-                  <th
-                    onClick={() => handleSort('date')}
-                    className="py-3.5 px-4 cursor-pointer select-none hover:text-gray-900 transition"
-                  >
-                    <div className="inline-flex items-center gap-1">
-                      <span>Commande / Date</span>
-                      {renderSortIcon('date')}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort('name')}
-                    className="py-3.5 px-4 cursor-pointer select-none hover:text-gray-900 transition"
-                  >
-                    <div className="inline-flex items-center gap-1">
-                      <span>Exposant</span>
-                      {renderSortIcon('name')}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort('stand')}
-                    className="py-3.5 px-4 cursor-pointer select-none hover:text-gray-900 transition"
-                  >
-                    <div className="inline-flex items-center gap-1">
-                      <span>Stands</span>
-                      {renderSortIcon('stand')}
-                    </div>
-                  </th>
-                  <th className="py-3.5 px-4">Règlement</th>
-                  <th
-                    onClick={() => handleSort('amount')}
-                    className="py-3.5 px-4 cursor-pointer select-none hover:text-gray-900 transition"
-                  >
-                    <div className="inline-flex items-center gap-1">
-                      <span>Montant</span>
-                      {renderSortIcon('amount')}
-                    </div>
-                  </th>
-                  <th
-                    onClick={() => handleSort('status')}
-                    className="py-3.5 px-4 cursor-pointer select-none hover:text-gray-900 transition"
-                  >
-                    <div className="inline-flex items-center gap-1">
-                      <span>Statut</span>
-                      {renderSortIcon('status')}
-                    </div>
-                  </th>
-                  <th className="py-3.5 px-4">Notes / Réf</th>
-                  <th className="py-3.5 px-4 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100 text-gray-700">
-                {sortedOrders.map((ord) => (
-                  <tr key={ord.id} className="hover:bg-gray-50/60 transition">
-                    {/* Selection checkbox */}
-                    <td className="py-3.5 px-3 text-center">
-                      {ord.status === 'confirmed' ? (
-                        <input
-                          type="checkbox"
-                          checked={selectedOrderIds.has(ord.id)}
-                          onChange={() => handleToggleSelectOrder(ord.id)}
-                          className="rounded text-emerald-600 focus:ring-emerald-500 h-4 w-4 cursor-pointer"
-                          title={`Sélectionner la commande ${ord.order_number}`}
-                        />
-                      ) : (
-                        <span className="inline-block w-4 h-4" />
-                      )}
-                    </td>
-
-                    {/* Order & Date */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      <div className="font-bold text-gray-900">{ord.order_number}</div>
-                      <div className="text-[11px] text-gray-400 mt-0.5">
-                        {formatDate(ord.created_at)}
-                      </div>
-                    </td>
-
-                    {/* Exhibitor */}
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-gray-900">{ord.full_name}</div>
-                      <div className="text-[11px] text-gray-500">{ord.phone}</div>
-                      {ord.email && (
-                        <div className="text-[11px] text-gray-400 truncate max-w-[160px]">
-                          {ord.email}
-                        </div>
-                      )}
-                    </td>
-
-                    {/* Spots */}
-                    <td className="py-3.5 px-4">
-                      <div className="flex flex-wrap gap-1">
-                        {ord.spot_labels && ord.spot_labels.length > 0 ? (
-                          ord.spot_labels.map((lbl) => (
-                            <span
-                              key={lbl}
-                              className="px-2 py-0.5 rounded-md font-bold text-[11px] bg-gray-100 text-gray-800 border border-gray-200"
-                            >
-                              {lbl}
-                            </span>
-                          ))
-                        ) : (
-                          <span className="text-gray-400 italic text-[11px]">Non spécifié</span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* Payment Badge */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      {renderPaymentBadge(ord.payment_method, ord.is_offline, ord.offline_payment_reference)}
-                    </td>
-
-                    {/* Amount */}
-                    <td className="py-3.5 px-4 whitespace-nowrap font-black text-gray-900">
-                      {ord.total_price.toFixed(2)} €
-                    </td>
-
-                    {/* Status */}
-                    <td className="py-3.5 px-4 whitespace-nowrap">
-                      {ord.status === 'confirmed' ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-emerald-700">
-                          <CheckCircle2 className="w-3.5 h-3.5" />
-                          <span>Confirmé</span>
-                        </span>
-                      ) : ord.status === 'cancellation_requested' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-900 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300"
-                          title={`Annulation demandée par l'exposant${ord.cancellation_reason ? ` (Motif: ${ord.cancellation_reason})` : ''}`}
-                        >
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                          <span>Annulation demandée</span>
-                        </span>
-                      ) : ord.status === 'pending_approval' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-300"
-                          title="En attente de validation par l'organisateur (pré-autorisation enregistrée)"
-                        >
-                          <Clock className="w-3.5 h-3.5 text-amber-600" />
-                          <span>À valider</span>
-                        </span>
-                      ) : ord.status === 'rejected' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-red-700 bg-red-50 px-2 py-0.5 rounded-full border border-red-200"
-                          title="Réservation refusée et pré-autorisation annulée"
-                        >
-                          <XCircle className="w-3.5 h-3.5 text-red-500" />
-                          <span>Refusé</span>
-                        </span>
-                      ) : ord.status === 'refunded' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-purple-700 bg-purple-50 px-2 py-0.5 rounded-full border border-purple-200"
-                          title="Commande entièrement remboursée, stand(s) libéré(s)"
-                        >
-                          <RotateCcw className="w-3.5 h-3.5 text-purple-600" />
-                          <span>Remboursé</span>
-                        </span>
-                      ) : ord.status === 'cancelled' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full border border-gray-200 line-through"
-                          title="Commande annulée sans débit ou lors d'une annulation d'événement"
-                        >
-                          <XCircle className="w-3.5 h-3.5 text-gray-400" />
-                          <span>Annulé</span>
-                        </span>
-                      ) : ord.status === 'pending' ? (
-                        <span
-                          className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200"
-                          title={ord.is_offline ? "Règlement en attente d'encaissement" : "L'exposant n'a pas finalisé son paiement en ligne"}
-                        >
-                          <AlertCircle className="w-3.5 h-3.5 text-amber-600" />
-                          <span>{ord.is_offline ? "Règlement en attente" : "Transaction non aboutie"}</span>
-                        </span>
-                      ) : (
-                        <span className="text-[11px] font-bold text-gray-500 capitalize">
-                          {ord.status}
-                        </span>
-                      )}
-                    </td>
-
-                    {/* Notes & Ref */}
-                    <td className="py-3.5 px-4 text-[11px] text-gray-500 max-w-[200px]">
-                      {ord.cancellation_reason && (
-                        <div
-                          className="font-semibold text-amber-800 truncate"
-                          title={`Motif: ${ord.cancellation_reason}${ord.cancellation_comment ? ` — « ${ord.cancellation_comment} »` : ''}`}
-                        >
-                          Annulation : {getCancellationReasonLabel(ord.cancellation_reason)}
-                          {ord.cancellation_comment && ` (${ord.cancellation_comment})`}
-                        </div>
-                      )}
-                      {ord.offline_payment_reference && (
-                        <div className="font-semibold text-gray-800">
-                          Réf: {ord.offline_payment_reference}
-                        </div>
-                      )}
-                      {ord.admin_notes && (
-                        <div className="italic text-gray-600 truncate" title={ord.admin_notes}>
-                          « {ord.admin_notes} »
-                        </div>
-                      )}
-                      {!ord.cancellation_reason && !ord.offline_payment_reference && !ord.admin_notes && (
-                        <span className="text-gray-300">&mdash;</span>
-                      )}
-                    </td>
-
-                    {/* Actions */}
-                    <td className="py-3.5 px-4 whitespace-nowrap text-right">
-                      {ord.status === 'pending_approval' ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setApproveModalOrder(ord);
-                              setModalError(null);
-                            }}
-                            disabled={actionLoadingId === ord.id}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition disabled:opacity-50"
-                            title="Valider l'inscription et capturer la pré-autorisation CB"
-                          >
-                            {actionLoadingId === ord.id ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                            <span>Accepter</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRejectModalOrder(ord);
-                              setRejectReason('');
-                              setModalError(null);
-                            }}
-                            disabled={actionLoadingId === ord.id}
-                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold flex items-center gap-1 transition disabled:opacity-50"
-                            title="Refuser l'inscription, annuler l'autorisation et libérer les stands"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Refuser</span>
-                          </button>
-                        </div>
-                      ) : ord.status === 'cancellation_requested' ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRefundModalOrder(ord);
-                              setRefundReason('');
-                              setModalError(null);
-                            }}
-                            disabled={actionLoadingId === ord.id}
-                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition disabled:opacity-50"
-                            title="Valider le remboursement et libérer les stands"
-                          >
-                            {actionLoadingId === ord.id ? (
-                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <Check className="w-3.5 h-3.5" />
-                            )}
-                            <span>Valider remboursement</span>
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRejectCancellationModalOrder(ord);
-                              setRejectCancellationReason('');
-                              setModalError(null);
-                            }}
-                            disabled={actionLoadingId === ord.id}
-                            className="px-2.5 py-1 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold flex items-center gap-1 transition disabled:opacity-50"
-                            title="Refuser la demande d'annulation et maintenir la réservation"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                            <span>Refuser</span>
-                          </button>
-                        </div>
-                      ) : ord.status === 'confirmed' ? (
-                        <div className="flex items-center justify-end gap-1.5">
-                          <a
-                            href={getAdminAttestationPdfUrl(event.slug || event.id, ord.id)}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            download={`attestation_${ord.order_number}.pdf`}
-                            className="px-2 py-1 text-gray-600 hover:text-emerald-700 hover:bg-emerald-50 border border-transparent hover:border-emerald-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition"
-                            title="Télécharger l'attestation sur l'honneur PDF"
-                          >
-                            <Download className="w-3.5 h-3.5 text-gray-400" />
-                            <span>Attestation</span>
-                          </a>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setRefundModalOrder(ord);
-                              setRefundReason('');
-                              setModalError(null);
-                            }}
-                            disabled={actionLoadingId === ord.id}
-                            className="px-2 py-1 text-gray-600 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 rounded-lg text-xs font-semibold flex items-center gap-1 transition disabled:opacity-50"
-                            title="Rembourser cette réservation et libérer les stands"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5 text-gray-400" />
-                            <span>Rembourser</span>
-                          </button>
-                        </div>
-                      ) : (
-                        <span className="text-gray-300">&mdash;</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {/* Tab 1: Inscriptions */}
+      <div
+        role="tabpanel"
+        id="panel-inscriptions"
+        aria-labelledby="tab-inscriptions"
+        hidden={activeTab !== 'inscriptions'}
+      >
+        {activeTab === 'inscriptions' && (
+          <RegistrationsTab
+            event={event}
+            orders={orders}
+            sortedOrders={sortedOrders}
+            stats={stats}
+            loading={loading}
+            searchQuery={searchQuery}
+            setSearchQuery={setSearchQuery}
+            statusFilter={statusFilter}
+            setStatusFilter={setStatusFilter}
+            onSort={handleSort}
+            renderSortIcon={renderSortIcon}
+            selectedOrderIds={selectedOrderIds}
+            onToggleSelectAll={handleToggleSelectAll}
+            onToggleSelectOrder={handleToggleSelectOrder}
+            isAllConfirmedSelected={isAllConfirmedSelected}
+            renderPaymentBadge={renderPaymentBadge}
+            formatDate={formatDate}
+            onOpenBroadcast={() => setIsBroadcastModalOpen(true)}
+            onRefresh={loadData}
+            onOpenRefundModal={(order) => {
+              setRefundModalOrder(order);
+              setRefundReason('');
+              setModalError(null);
+            }}
+            onOpenApproveModal={(order) => {
+              setApproveModalOrder(order);
+              setModalError(null);
+            }}
+            onOpenRejectModal={(order) => {
+              setRejectModalOrder(order);
+              setRejectReason('');
+              setModalError(null);
+            }}
+            onOpenRejectCancellationModal={(order) => {
+              setRejectCancellationModalOrder(order);
+              setRejectCancellationReason('');
+              setModalError(null);
+            }}
+          />
         )}
       </div>
 
-      {/* Approve Confirmation Modal */}
+      {/* Tab 2: Guichet sur place */}
+      <div
+        role="tabpanel"
+        id="panel-guichet"
+        aria-labelledby="tab-guichet"
+        hidden={activeTab !== 'guichet'}
+      >
+        {activeTab === 'guichet' && (
+          <GuichetTab
+            event={event}
+            orders={allOrders}
+            stats={stats}
+            onBookingCreated={(orderNumber) => {
+              setToastMessage(`Inscription guichet n° ${orderNumber} enregistrée avec succès !`);
+              setTimeout(() => setToastMessage(null), 6000);
+              loadData();
+            }}
+            renderPaymentBadge={renderPaymentBadge}
+            formatDate={formatDate}
+          />
+        )}
+      </div>
+
+      {/* Tab 3: Modération & Litiges */}
+      <div
+        role="tabpanel"
+        id="panel-moderation"
+        aria-labelledby="tab-moderation"
+        hidden={activeTab !== 'moderation'}
+      >
+        {activeTab === 'moderation' && (
+          <ModerationTab
+            event={event}
+            orders={allOrders}
+            isModerated={isModerated}
+            updatingModeration={updatingModeration}
+            onToggleModeration={handleToggleModeration}
+            onOpenApproveModal={(order) => {
+              setApproveModalOrder(order);
+              setModalError(null);
+            }}
+            onOpenRejectModal={(order) => {
+              setRejectModalOrder(order);
+              setRejectReason('');
+              setModalError(null);
+            }}
+            onOpenRefundModal={(order) => {
+              setRefundModalOrder(order);
+              setRefundReason('');
+              setModalError(null);
+            }}
+            onOpenRejectCancellationModal={(order) => {
+              setRejectCancellationModalOrder(order);
+              setRejectCancellationReason('');
+              setModalError(null);
+            }}
+            onOpenBulkCancelModal={() => {
+              setIsBulkCancelModalOpen(true);
+              setBulkConfirmationText('');
+              setBulkCancelReason('');
+              setModalError(null);
+              setBulkCancelReport(null);
+            }}
+            currentEventStatus={currentEventStatus}
+            formatDate={formatDate}
+          />
+        )}
+      </div>
+
+      {/* Tab 4: Communications */}
+      <div
+        role="tabpanel"
+        id="panel-communications"
+        aria-labelledby="tab-communications"
+        hidden={activeTab !== 'communications'}
+      >
+        {activeTab === 'communications' && (
+          <CommunicationsTab
+            event={event}
+            onOpenBroadcast={() => {
+              setSelectedOrderIds(new Set());
+              setIsBroadcastModalOpen(true);
+            }}
+            confirmedCount={stats?.confirmed_orders_count ?? 0}
+          />
+        )}
+      </div>
+
+      {/* --- Page-level Action Modals --- */}
+
+      {/* Approve Modal */}
       {approveModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
@@ -1402,15 +949,15 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Montant :</span>
-                <span className="font-black text-gray-900">
+                <span className="text-gray-500">Montant à capturer :</span>
+                <span className="font-black text-emerald-700">
                   {approveModalOrder.total_price.toFixed(2)} €
                 </span>
               </div>
             </div>
 
             <p className="text-xs text-gray-600">
-              En confirmant, vous déclenchez la <strong>capture immédiate</strong> de la pré-autorisation bancaire Stripe. L'inscription sera définitivement confirmée et les fonds transférés.
+              En validant, l'autorisation bancaire Stripe sera <strong>capturée définitivement</strong>. L'exposant recevra son e-mail de confirmation avec l'attestation officielle et les stands lui seront définitivement attribués.
             </p>
 
             {modalError && (
@@ -1441,20 +988,20 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                 {actionLoadingId === approveModalOrder.id && (
                   <RefreshCw className="w-3.5 h-3.5 animate-spin" />
                 )}
-                <span>Confirmer et capturer</span>
+                <span>Confirmer et encaisser</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Reject Confirmation Modal */}
+      {/* Reject Modal */}
       {rejectModalOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
           <div className="bg-white rounded-2xl shadow-xl border border-gray-100 max-w-md w-full p-6 space-y-4">
             <div className="flex items-center gap-3 text-red-600">
               <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center">
-                <XCircle className="w-5 h-5" />
+                <X className="w-5 h-5" />
               </div>
               <div>
                 <h3 className="text-lg font-bold text-gray-900">Refuser l'inscription</h3>
@@ -1474,7 +1021,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500">Montant à annuler :</span>
+                <span className="text-gray-500">Montant :</span>
                 <span className="font-black text-gray-900">
                   {rejectModalOrder.total_price.toFixed(2)} €
                 </span>
@@ -1482,18 +1029,18 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
             </div>
 
             <p className="text-xs text-gray-600">
-              L'autorisation bancaire sera <strong>annulée sans aucun débit</strong> sur le compte de l'exposant. Les stands réservés redeviendront <strong>immédiatement disponibles</strong> sur le plan.
+              En refusant cette inscription, la pré-autorisation bancaire Stripe sera <strong>annulée sans aucun débit</strong> pour l'exposant. Les stands réservés redeviendront <strong>immédiatement disponibles</strong> pour d'autres participants.
             </p>
 
             <div className="space-y-1.5">
               <label className="block text-xs font-semibold text-gray-700">
-                Motif du refus (optionnel, consigné en note interne)
+                Motif du refus (optionnel, transmis à l'exposant)
               </label>
               <textarea
                 value={rejectReason}
                 onChange={(e) => setRejectReason(e.target.value)}
-                placeholder="Ex. Dossier non conforme, pièce justificative manquante..."
-                rows={3}
+                placeholder="Ex. Stand inadapté, justificatifs non conformes..."
+                rows={2}
                 className="w-full p-2.5 text-xs rounded-xl border border-gray-200 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500"
               />
             </div>
@@ -1899,14 +1446,6 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
           </div>
         </div>
       )}
-
-      {/* Manual Booking Modal */}
-      <ManualBookingModal
-        isOpen={isModalOpen}
-        event={event}
-        onClose={() => setIsModalOpen(false)}
-        onSuccess={handleManualBookingSuccess}
-      />
 
       {/* Broadcast Modal */}
       <BroadcastModal
