@@ -678,4 +678,375 @@ def test_delete_event_cleans_up_poster_file(client: TestClient):
     assert not disk_path.exists()
 
 
+def test_duplicate_event_clean_slate_and_spots(client: TestClient, db_session):
+    """
+    Test duplicating an event with spots, orders, poster, and background image:
+    - Spots are duplicated with identical geometries, but status is reset to 'available'
+    - No orders or bookings are copied
+    - Status is reset to 'draft' even if source event was 'published'
+    - New unique slug is generated
+    - Media files are cloned independently
+    - Shifted dates preserve event duration
+    """
+    from app.models.spot import Spot
+    from app.models.order import Order, BookingItem
+    from app.models.event import Event
+
+    now = datetime.now(timezone.utc)
+    source_start = now + timedelta(days=30)
+    source_end = now + timedelta(days=31)
+
+    create_res = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier Annuel 2026",
+            "description": "Superbe vide-grenier de quartier",
+            "location_address": "Place de la Mairie",
+            "organizer_email": "orga@example.com",
+            "start_date": source_start.isoformat(),
+            "end_date": source_end.isoformat(),
+            "price_per_meter": 5.0,
+        },
+    )
+    assert create_res.status_code == 201
+    source_id = uuid.UUID(create_res.json()["id"])
+
+    # Mark source event as published to verify duplicate resets to draft
+    source_event = db_session.query(Event).filter(Event.id == source_id).first()
+    source_event.status = "published"
+    db_session.commit()
+
+    # Upload poster to source event
+    png_content = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc`\x00\x00"
+        b"\x00\x02\x00\x01H\xaf\xa4q\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    files = {"file": ("source_poster.png", io.BytesIO(png_content), "image/png")}
+    poster_res = client.post(f"/api/v1/events/{source_id}/poster", files=files)
+    assert poster_res.status_code == 200
+    source_poster_url = poster_res.json()["poster_image_url"]
+
+    # Upload background image to source event
+    bg_files = {"file": ("source_bg.png", io.BytesIO(png_content), "image/png")}
+    bg_res = client.post(f"/api/v1/events/{source_id}/background-image", files=bg_files)
+    assert bg_res.status_code == 201
+    source_bg_url = bg_res.json()["background_image_url"]
+
+    # Create 2 spots via API in source event: 1 available, 1 reserved with an order
+    coords1 = [[[-2.025, 48.650], [-2.020, 48.650], [-2.020, 48.652], [-2.025, 48.652], [-2.025, 48.650]]]
+    coords2 = [[[-2.020, 48.650], [-2.015, 48.650], [-2.015, 48.652], [-2.020, 48.652], [-2.020, 48.650]]]
+    sp1_res = client.post(
+        f"/api/v1/events/{source_id}/spots",
+        json={"label": "A-01", "linear_meters": 3.0, "geometry": {"type": "Polygon", "coordinates": coords1}},
+    )
+    assert sp1_res.status_code == 201
+    sp2_res = client.post(
+        f"/api/v1/events/{source_id}/spots",
+        json={"label": "A-02", "linear_meters": 3.0, "geometry": {"type": "Polygon", "coordinates": coords2}},
+    )
+    assert sp2_res.status_code == 201
+    spot2_id = uuid.UUID(sp2_res.json()["id"])
+
+    # Mark spot 2 as reserved with an order in source
+    spot2 = db_session.query(Spot).filter(Spot.id == spot2_id).first()
+    spot2.status = "reserved"
+    spot2.locked_until = now + timedelta(hours=1)
+    spot2.locked_by_token = "token123"
+
+    order = Order(
+        id=uuid.uuid4(),
+        event_id=source_id,
+        order_number="CMD-2026-001",
+        status="confirmed",
+        total_price_cents=1500,
+        first_name="Jean",
+        last_name="Dupont",
+        phone="0612345678",
+        email="dupont@example.com",
+    )
+    db_session.add(order)
+    db_session.flush()
+
+    b_item = BookingItem(
+        id=uuid.uuid4(),
+        order_id=order.id,
+        spot_id=spot2_id,
+        price_cents=1500,
+    )
+    db_session.add(b_item)
+    db_session.commit()
+
+    # Now duplicate the event with default options (empty body)
+    dup_res = client.post(f"/api/v1/events/{source_id}/duplicate")
+    assert dup_res.status_code == 201, dup_res.text
+    dup_data = dup_res.json()
+    new_id = uuid.UUID(dup_data["id"])
+
+    assert new_id != source_id
+    assert dup_data["title"] == "Vide-Grenier Annuel 2026 - Copie"
+    assert dup_data["status"] == "draft"  # Strictly draft even if source was published
+    assert dup_data["slug"] != create_res.json()["slug"]
+    assert dup_data["location_address"] == "Place de la Mairie"
+    assert dup_data["organizer_email"] == "orga@example.com"
+    assert dup_data["price_per_meter"] == 5.0
+
+    # Verify shifted dates (+365 days preserving duration)
+    def parse_ts(val):
+        if isinstance(val, str):
+            val = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
+        return val.timestamp()
+
+    expected_start = source_start + timedelta(days=365)
+    expected_end = source_end + timedelta(days=365)
+    assert abs(parse_ts(dup_data["start_date"]) - parse_ts(expected_start)) < 5
+    assert abs(parse_ts(dup_data["end_date"]) - parse_ts(expected_end)) < 5
+
+    # Verify poster independent clone
+    new_poster_url = dup_data["poster_image_url"]
+    assert new_poster_url is not None
+    assert new_poster_url != source_poster_url
+    assert new_poster_url.startswith("/uploads/posters/")
+
+    from app.core.config import settings
+    source_poster_disk = settings.upload_dir_path / "posters" / source_poster_url.removeprefix("/uploads/posters/")
+    new_poster_disk = settings.upload_dir_path / "posters" / new_poster_url.removeprefix("/uploads/posters/")
+    assert source_poster_disk.is_file()
+    assert new_poster_disk.is_file()
+
+    # Verify background image independent clone
+    new_bg_url = dup_data["background_image_url"]
+    assert new_bg_url is not None
+    assert new_bg_url != source_bg_url
+    assert new_bg_url.startswith("/uploads/backgrounds/")
+    source_bg_disk = settings.upload_dir_path / "backgrounds" / source_bg_url.removeprefix("/uploads/backgrounds/")
+    new_bg_disk = settings.upload_dir_path / "backgrounds" / new_bg_url.removeprefix("/uploads/backgrounds/")
+    assert source_bg_disk.is_file()
+    assert new_bg_disk.is_file()
+
+    # Verify spots were cloned with clean slate and identical geometries
+    cloned_spots = db_session.query(Spot).filter(Spot.event_id == new_id).order_by(Spot.label).all()
+    assert len(cloned_spots) == 2
+
+    # Spot 1
+    assert cloned_spots[0].label == "A-01"
+    assert cloned_spots[0].linear_meters == 3.0
+    assert cloned_spots[0].price_cents == 1500
+    assert cloned_spots[0].status == "available"
+
+    # Spot 2 (which was reserved in source!) must be available with no lock
+    assert cloned_spots[1].label == "A-02"
+    assert cloned_spots[1].linear_meters == 3.0
+    assert cloned_spots[1].price_cents == 1500
+    assert cloned_spots[1].status == "available"
+    assert cloned_spots[1].locked_until is None
+    assert cloned_spots[1].locked_by_token is None
+
+    # Verify geometry via spots GeoJSON endpoint
+    spots_res = client.get(f"/api/v1/events/{new_id}/spots")
+    assert spots_res.status_code == 200
+    features = sorted(spots_res.json()["features"], key=lambda f: f["properties"]["label"])
+    assert len(features) == 2
+    assert features[0]["geometry"]["coordinates"] == coords1
+    assert features[1]["geometry"]["coordinates"] == coords2
+
+    # Verify zero orders and bookings for the new event
+    order_count = db_session.query(Order).filter(Order.event_id == new_id).count()
+    assert order_count == 0
+
+
+def test_duplicate_event_custom_title_and_dates(client: TestClient):
+    """Test duplicating an event with custom title and start/end dates, by slug, and end_date alone."""
+    now = datetime.now(timezone.utc)
+    create_res = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier 2026",
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=11)).isoformat(),
+            "price_per_meter": 4.5,
+        },
+    )
+    source_id = create_res.json()["id"]
+    source_slug = create_res.json()["slug"]
+
+    custom_start = now + timedelta(days=360)
+    custom_end = now + timedelta(days=362)
+
+    def parse_ts(val):
+        if isinstance(val, str):
+            val = datetime.fromisoformat(val.replace("Z", "+00:00"))
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
+        return val.timestamp()
+
+    # 1. Duplicate using slug instead of UUID
+    dup_res = client.post(
+        f"/api/v1/events/{source_slug}/duplicate",
+        json={
+            "title": "Vide-Grenier Édition 2027",
+            "start_date": custom_start.isoformat(),
+            "end_date": custom_end.isoformat(),
+        },
+    )
+    assert dup_res.status_code == 201
+    dup_data = dup_res.json()
+    assert dup_data["title"] == "Vide-Grenier Édition 2027"
+    assert dup_data["status"] == "draft"
+
+    assert abs(parse_ts(dup_data["start_date"]) - parse_ts(custom_start)) < 5
+    assert abs(parse_ts(dup_data["end_date"]) - parse_ts(custom_end)) < 5
+
+    # 2. Test providing end_date alone (start_date shifted preserving 1 day duration)
+    end_alone = now + timedelta(days=400)
+    dup_res2 = client.post(
+        f"/api/v1/events/{source_id}/duplicate",
+        json={
+            "title": "Vide-Grenier 2027 Bis",
+            "end_date": end_alone.isoformat(),
+        },
+    )
+    assert dup_res2.status_code == 201
+    dup_data2 = dup_res2.json()
+    assert abs(parse_ts(dup_data2["end_date"]) - parse_ts(end_alone)) < 5
+    diff = parse_ts(dup_data2["end_date"]) - parse_ts(dup_data2["start_date"])
+    assert abs(diff - 86400) < 5
+
+
+def test_duplicate_event_by_superadmin(client: TestClient, db_session):
+    """Test that a super-admin can duplicate an event owned by another organizer."""
+    from app.models.user import User, UserRole
+    from app.core.security import hash_password, create_access_token
+
+    admin = User(
+        email="super_dup@example.com",
+        hashed_password=hash_password("Pass123!"),
+        role=UserRole.SUPER_ADMIN,
+        is_active=True,
+    )
+    organizer = User(
+        email="orga_dup@example.com",
+        hashed_password=hash_password("Pass123!"),
+        role=UserRole.EVENT_ADMIN,
+        is_active=True,
+    )
+    db_session.add_all([admin, organizer])
+    db_session.commit()
+
+    admin_token = create_access_token(data={"sub": str(admin.id), "role": str(admin.role), "email": admin.email})
+    organizer_token = create_access_token(data={"sub": str(organizer.id), "role": str(organizer.role), "email": organizer.email})
+
+    now = datetime.now(timezone.utc)
+    create_res = client.post(
+        "/api/v1/events",
+        headers={"Authorization": f"Bearer {organizer_token}"},
+        json={
+            "title": "Organizer Event",
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=11)).isoformat(),
+            "price_per_meter": 5.0,
+        },
+    )
+    event_id = create_res.json()["id"]
+
+    # Super-admin duplicates organizer's event
+    dup_res = client.post(
+        f"/api/v1/events/{event_id}/duplicate",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"title": "Organizer Event Duplicated By SuperAdmin"},
+    )
+    assert dup_res.status_code == 201
+    assert dup_res.json()["title"] == "Organizer Event Duplicated By SuperAdmin"
+
+
+def test_duplicate_event_zero_spots_and_long_title(client: TestClient):
+    """Test duplicating an event with 0 spots and title length near 255 characters."""
+    now = datetime.now(timezone.utc)
+    long_title = "A" * 250
+    create_res = client.post(
+        "/api/v1/events",
+        json={
+            "title": long_title,
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=11)).isoformat(),
+            "price_per_meter": 5.0,
+        },
+    )
+    assert create_res.status_code == 201
+    event_id = create_res.json()["id"]
+
+    # Default duplication appends ' - Copie' without crashing 255 length constraint
+    dup_res = client.post(f"/api/v1/events/{event_id}/duplicate")
+    assert dup_res.status_code == 201
+    dup_data = dup_res.json()
+    assert len(dup_data["title"]) <= 255
+    assert dup_data["title"].endswith(" - Copie")
+
+
+
+def test_duplicate_event_validation_and_access_control(client: TestClient, db_session):
+    """Test invalid date ranges, non-existent events, and access control."""
+    from app.models.user import User, UserRole
+    from app.core.security import hash_password, create_access_token
+
+    owner = User(
+        email="owner_dup@example.com",
+        hashed_password=hash_password("Pass123!"),
+        role=UserRole.EVENT_ADMIN,
+        is_active=True,
+    )
+    stranger = User(
+        email="stranger_dup@example.com",
+        hashed_password=hash_password("Pass123!"),
+        role=UserRole.EVENT_ADMIN,
+        is_active=True,
+    )
+    db_session.add_all([owner, stranger])
+    db_session.commit()
+
+    owner_token = create_access_token(data={"sub": str(owner.id), "role": str(owner.role), "email": owner.email})
+    stranger_token = create_access_token(data={"sub": str(stranger.id), "role": str(stranger.role), "email": stranger.email})
+
+    now = datetime.now(timezone.utc)
+    create_res = client.post(
+        "/api/v1/events",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={
+            "title": "Protected Event For Duplication",
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=11)).isoformat(),
+            "price_per_meter": 4.0,
+        },
+    )
+    event_id = create_res.json()["id"]
+
+    # 1. Stranger cannot duplicate
+    bad_dup = client.post(
+        f"/api/v1/events/{event_id}/duplicate",
+        headers={"Authorization": f"Bearer {stranger_token}"},
+    )
+    assert bad_dup.status_code == 403
+
+    # 2. Invalid date range (end_date < start_date)
+    inv_dates = client.post(
+        f"/api/v1/events/{event_id}/duplicate",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={
+            "start_date": (now + timedelta(days=20)).isoformat(),
+            "end_date": (now + timedelta(days=15)).isoformat(),
+        },
+    )
+    assert inv_dates.status_code == 422
+
+    # 3. Non-existent event returns 404
+    non_existent = client.post(
+        f"/api/v1/events/{uuid.uuid4()}/duplicate",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert non_existent.status_code == 404
+
+
+
 

@@ -105,6 +105,18 @@ class EventUpdate(BaseModel):
         return self
 
 
+class EventDuplicate(BaseModel):
+    title: Optional[str] = Field(None, min_length=1, max_length=255, description="Nouveau titre de l'événement (par défaut: '[Titre] - Copie')")
+    start_date: Optional[datetime] = Field(None, description="Nouvelle date et heure de début")
+    end_date: Optional[datetime] = Field(None, description="Nouvelle date et heure de fin")
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "EventDuplicate":
+        if self.start_date and self.end_date and _to_utc(self.end_date) < _to_utc(self.start_date):
+            raise ValueError("end_date must be greater than or equal to start_date")
+        return self
+
+
 class EventResponse(EventBase):
     id: uuid.UUID
     slug: str

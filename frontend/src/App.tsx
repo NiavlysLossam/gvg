@@ -32,6 +32,7 @@ import { CancellationPage } from './pages/CancellationPage';
 import { AdminUsersPage } from './pages/AdminUsersPage';
 import { EventSettingsPage } from './pages/EventSettingsPage';
 import { DeleteEventModal } from './components/DeleteEventModal';
+import { DuplicateEventModal } from './components/DuplicateEventModal';
 
 interface PublicRouteState {
   slug: string;
@@ -250,6 +251,7 @@ const AppContent: React.FC = () => {
   );
   const [selectedEvent, setSelectedEvent] = useState<EventModel | null>(null);
   const [eventToDelete, setEventToDelete] = useState<EventModel | null>(null);
+  const [eventToDuplicate, setEventToDuplicate] = useState<EventModel | null>(null);
   const [events, setEvents] = useState<EventModel[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [notification, setNotification] = useState<string | null>(null);
@@ -846,6 +848,7 @@ const AppContent: React.FC = () => {
                     onViewPublic={navigateToPublic}
                     onOpenInscriptions={handleOpenInscriptions}
                     onEditSettings={handleEditSettings}
+                    onDuplicate={(evt) => setEventToDuplicate(evt)}
                     onDelete={
                       user?.role === 'super_admin' ? (evt) => setEventToDelete(evt) : undefined
                     }
@@ -869,6 +872,20 @@ const AppContent: React.FC = () => {
           setEventToDelete(null);
         }}
       />
+
+      {eventToDuplicate && (
+        <DuplicateEventModal
+          event={eventToDuplicate}
+          isOpen={Boolean(eventToDuplicate)}
+          onClose={() => setEventToDuplicate(null)}
+          onSuccess={(duplicatedEvent) => {
+            setNotification(`L'événement « ${duplicatedEvent.title} » a été dupliqué avec succès au statut Brouillon.`);
+            setSelectedEvent(duplicatedEvent);
+            loadEvents();
+            setEventToDuplicate(null);
+          }}
+        />
+      )}
 
       {/* Footer */}
       <footer className="bg-white border-t border-gray-200 py-6 mt-auto">

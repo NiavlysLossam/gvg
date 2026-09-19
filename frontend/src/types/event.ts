@@ -81,3 +81,9 @@ export interface EventListResponse {
   total: number;
 }
 
+export interface EventDuplicateInput {
+  title?: string;
+  start_date?: string;
+  end_date?: string;
+}
+

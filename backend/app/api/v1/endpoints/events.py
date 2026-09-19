@@ -1,8 +1,10 @@
 import uuid
-from datetime import timezone
+import shutil
+from datetime import timedelta, timezone
 from typing import Optional
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Body, Response, status
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 from slugify import slugify
@@ -10,11 +12,13 @@ from slugify import slugify
 from app.core.config import settings
 from app.core.database import get_db
 from app.models.event import Event
+from app.models.spot import Spot
 from app.models.user import User, UserRole
 from app.api.deps import get_current_user, check_event_ownership, require_super_admin
 from app.schemas.event import (
     EventCreate,
     EventUpdate,
+    EventDuplicate,
     EventResponse,
     EventListResponse,
 )
@@ -544,4 +548,185 @@ def delete_event(
             pass
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{id_or_slug}/duplicate",
+    response_model=EventResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplicate an existing event with all its configuration and spots (clean slate for bookings)",
+)
+def duplicate_event(
+    id_or_slug: str,
+    duplicate_in: Optional[EventDuplicate] = Body(None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> Event:
+    """
+    Duplicates an existing event and all its spots:
+    - Sets title to user-specified or '[Nom] - Copie'
+    - Generates a unique collision-safe slug
+    - Initializes status strictly to 'draft'
+    - Shifts start/end dates by +1 year (or applies user-supplied dates)
+    - Clones floorplan and poster files on disk independently
+    - Clones all spots with their exact spatial geometries, resetting status to 'available'
+    - Strictly zero orders, bookings, transactions, or email logs duplicated
+    """
+    event: Optional[Event] = None
+    try:
+        val_uuid = uuid.UUID(id_or_slug)
+        event = db.query(Event).filter(Event.id == val_uuid).first()
+    except ValueError:
+        event = None
+
+    if not event:
+        event = db.query(Event).filter(Event.slug == id_or_slug).first()
+
+    if not event:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Event not found",
+        )
+
+    check_event_ownership(event, current_user)
+
+    # 1. Determine title and unique slug (enforce column max length 255)
+    raw_title = duplicate_in.title.strip() if duplicate_in and duplicate_in.title else None
+    if raw_title:
+        new_title = raw_title[:255]
+    else:
+        base_title = event.title[:247]
+        new_title = f"{base_title} - Copie"
+    new_slug = generate_unique_slug(db, new_title)
+
+    # 2. Determine dates
+    duration = event.end_date - event.start_date
+    if duplicate_in and duplicate_in.start_date and duplicate_in.end_date:
+        new_start = duplicate_in.start_date
+        new_end = duplicate_in.end_date
+    elif duplicate_in and duplicate_in.start_date:
+        new_start = duplicate_in.start_date
+        new_end = new_start + duration
+    elif duplicate_in and duplicate_in.end_date:
+        new_end = duplicate_in.end_date
+        new_start = new_end - duration
+    else:
+        new_start = event.start_date + timedelta(days=365)
+        new_end = new_start + duration
+
+    # 3. Independent cloning of uploaded media files with failure cleanup tracking
+    cloned_files: list[Path] = []
+    new_background_url: Optional[str] = None
+    if event.background_image_url:
+        bg_dir = (settings.upload_dir_path / "backgrounds").resolve()
+        bg_dir.mkdir(parents=True, exist_ok=True)
+        if event.background_image_url.startswith("/uploads/backgrounds/"):
+            bg_rel = event.background_image_url.removeprefix("/uploads/backgrounds/").lstrip("/")
+            bg_file = (bg_dir / bg_rel).resolve()
+        elif event.background_image_url.startswith("/uploads/"):
+            bg_rel = event.background_image_url.removeprefix("/uploads/").lstrip("/")
+            bg_file = (settings.upload_dir_path / bg_rel).resolve()
+        else:
+            bg_file = None
+
+        if bg_file and bg_file.is_file():
+            ext = bg_file.suffix or ".png"
+            new_bg_filename = f"bg_{uuid.uuid4().hex}{ext}"
+            new_bg_path = bg_dir / new_bg_filename
+            try:
+                shutil.copy2(bg_file, new_bg_path)
+                cloned_files.append(new_bg_path)
+                new_background_url = f"/uploads/backgrounds/{new_bg_filename}"
+            except Exception:
+                new_background_url = None
+
+    new_poster_url: Optional[str] = None
+    if event.poster_image_url and event.poster_image_url.startswith("/uploads/posters/"):
+        posters_dir = (settings.upload_dir_path / "posters").resolve()
+        posters_dir.mkdir(parents=True, exist_ok=True)
+        poster_rel = event.poster_image_url.removeprefix("/uploads/posters/").lstrip("/")
+        poster_file = (posters_dir / poster_rel).resolve()
+        if poster_file.is_relative_to(posters_dir) and poster_file.is_file():
+            ext = poster_file.suffix or ".png"
+            new_poster_filename = f"{uuid.uuid4().hex}{ext}"
+            new_poster_path = posters_dir / new_poster_filename
+            try:
+                shutil.copy2(poster_file, new_poster_path)
+                cloned_files.append(new_poster_path)
+                new_poster_url = f"/uploads/posters/{new_poster_filename}"
+            except Exception:
+                new_poster_url = None
+
+    # 4. Instantiate new draft event
+    new_event = Event(
+        id=uuid.uuid4(),
+        title=new_title,
+        slug=new_slug,
+        description=event.description,
+        map_type=event.map_type,
+        background_image_url=new_background_url,
+        poster_image_url=new_poster_url,
+        center_latitude=event.center_latitude,
+        center_longitude=event.center_longitude,
+        default_zoom=event.default_zoom,
+        price_per_meter_cents=event.price_per_meter_cents,
+        start_date=new_start,
+        end_date=new_end,
+        setup_start_time=event.setup_start_time,
+        setup_end_time=event.setup_end_time,
+        public_start_time=event.public_start_time,
+        public_end_time=event.public_end_time,
+        location_address=event.location_address,
+        organizer_email=event.organizer_email,
+        stripe_account_id=event.stripe_account_id,
+        manual_approval_required=event.manual_approval_required,
+        rules_text=event.rules_text,
+        status="draft",
+        owner_id=event.owner_id,
+    )
+    db.add(new_event)
+    db.flush()
+
+    # 5. Duplicate all spots
+    source_spots = (
+        db.query(Spot, func.ST_AsText(Spot.geom).label("wkt"))
+        .filter(Spot.event_id == event.id)
+        .all()
+    )
+    cloned_spots = [
+        Spot(
+            id=uuid.uuid4(),
+            event_id=new_event.id,
+            label=spot.label,
+            linear_meters=spot.linear_meters,
+            price_cents=spot.price_cents,
+            geom=wkt,
+            status="available",
+            locked_until=None,
+            locked_by_token=None,
+        )
+        for spot, wkt in source_spots
+    ]
+    if cloned_spots:
+        db.add_all(cloned_spots)
+
+    try:
+        db.commit()
+        db.refresh(new_event)
+    except IntegrityError as exc:
+        db.rollback()
+        for p in cloned_files:
+            p.unlink(missing_ok=True)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Un conflit d'intégrité est survenu lors de la duplication de l'événement.",
+        ) from exc
+    except Exception as exc:
+        db.rollback()
+        for p in cloned_files:
+            p.unlink(missing_ok=True)
+        raise exc
+
+    return new_event
+
 

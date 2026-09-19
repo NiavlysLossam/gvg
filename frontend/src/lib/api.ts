@@ -1,4 +1,4 @@
-import { EventCreateInput, EventUpdateInput, EventListResponse, EventModel } from '../types/event';
+import { EventCreateInput, EventUpdateInput, EventDuplicateInput, EventListResponse, EventModel } from '../types/event';
 import {
   SpotCreateInput,
   SpotUpdateInput,
@@ -225,6 +225,29 @@ export async function fetchEvent(idOrSlug: string): Promise<EventModel> {
   if (!response.ok) {
     throw new Error('Événement introuvable');
   }
+  return response.json();
+}
+
+export async function duplicateEvent(idOrSlug: string, data?: EventDuplicateInput): Promise<EventModel> {
+  const response = await authFetch(`${API_BASE}/events/${encodeURIComponent(idOrSlug)}/duplicate`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(data ?? {}),
+  });
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la duplication de l’événement';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
   return response.json();
 }
 
