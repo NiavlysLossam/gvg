@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair } from 'lucide-react';
+import { Crosshair, Layers } from 'lucide-react';
 import { PublicEventResponse, PublicSpotFeature } from '../../types/public';
 import { getImageUrl } from '../../lib/api';
-import { buildTileLayer, findPresetByUrl, getDefaultLayer } from '../../lib/mapLayers';
+import { buildTileLayer, findPresetByUrl, getDefaultLayer, PRESET_LAYERS, PresetLayer } from '../../lib/mapLayers';
 
 interface PublicMapProps {
   event: PublicEventResponse;
@@ -40,7 +40,30 @@ export const PublicMap: React.FC<PublicMapProps> = ({
   const initialFitDoneRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState<boolean>(false);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
+  const [currentLayerId, setCurrentLayerId] = useState<string>(() => {
+    const effective = event.wms_url?.trim() || null;
+    const matched = findPresetByUrl(effective);
+    return matched ? matched.id : effective ? 'custom' : 'osm';
+  });
+  const [showLayerMenu, setShowLayerMenu] = useState<boolean>(false);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
+
+  // Switch base layer dynamically for public viewers (presets only)
+  const handleSelectLayer = useCallback(
+    (preset: PresetLayer) => {
+      if (!mapInstanceRef.current || event.map_type !== 'geographic') return;
+      if (tileLayerRef.current) {
+        mapInstanceRef.current.removeLayer(tileLayerRef.current);
+      }
+      const newLayer = buildTileLayer(preset.url, preset.attribution, preset.maxNativeZoom).addTo(
+        mapInstanceRef.current
+      );
+      tileLayerRef.current = newLayer;
+      setCurrentLayerId(preset.id);
+      setShowLayerMenu(false);
+    },
+    [event.map_type]
+  );
 
   // Recenter / fitBounds handler
   const handleRecenter = useCallback(() => {
@@ -366,8 +389,47 @@ export const PublicMap: React.FC<PublicMapProps> = ({
         </div>
       )}
 
-      {/* Floating Recenter Button */}
+      {/* Floating Controls */}
       <div className="absolute bottom-6 right-4 z-30 flex flex-col items-end gap-2">
+        {event.map_type === 'geographic' && (
+          <div className="relative">
+            {showLayerMenu && (
+              <div className="absolute bottom-14 right-0 bg-white rounded-xl shadow-xl border border-gray-200 p-1.5 min-w-48 flex flex-col gap-1 z-40">
+                <div className="px-2 py-1 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+                  Fond de carte
+                </div>
+                {PRESET_LAYERS.map((preset) => {
+                  const isSelected = currentLayerId === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleSelectLayer(preset)}
+                      className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-medium transition flex items-center justify-between ${
+                        isSelected
+                          ? 'bg-emerald-50 text-emerald-800 font-semibold'
+                          : 'text-gray-700 hover:bg-gray-100'
+                      }`}
+                    >
+                      <span>{preset.label}</span>
+                      {isSelected && <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowLayerMenu((prev) => !prev)}
+              className="bg-white text-gray-700 shadow-md rounded-full p-3 hover:bg-gray-50 active:scale-95 transition flex items-center justify-center border border-gray-200 group"
+              title="Changer le fond de carte"
+              aria-label="Changer le fond de carte"
+            >
+              <Layers className="w-5 h-5 text-emerald-700 group-hover:scale-110 transition-transform duration-200" />
+            </button>
+          </div>
+        )}
+
         <button
           onClick={handleRecenter}
           className="bg-white text-gray-700 shadow-md rounded-full p-3 hover:bg-gray-50 active:scale-95 transition flex items-center justify-center border border-gray-200 group"

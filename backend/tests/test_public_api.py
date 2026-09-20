@@ -72,7 +72,7 @@ def test_get_public_event_by_slug_success(client: TestClient):
 
 def test_get_public_event_with_wms_layer(client: TestClient):
     """Verify that public event endpoint exposes wms_url and wms_layer to the public map."""
-    wms_url = "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&LAYER=ORTHOIMAGERY.ORTHOPHOTOS"
+    wms_url = "https://data.geopf.fr/wmts?SERVICE=WMTS&LAYER=ORTHOIMAGERY.ORTHOPHOTOS"
     wms_layer = "ORTHOIMAGERY.ORTHOPHOTOS"
     event = create_sample_event(client, title="Brocante IGN WMS")
     event_id = event["id"]

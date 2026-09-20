@@ -1057,7 +1057,7 @@ def test_wms_create_with_wms_url(client: TestClient):
         "end_date": (now + timedelta(days=10, hours=8)).isoformat(),
         "price_per_meter": 4.0,
         "map_type": "geographic",
-        "wms_url": "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg",
+        "wms_url": "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg",
         "wms_layer": "ORTHOIMAGERY.ORTHOPHOTOS",
     }
     response = client.post("/api/v1/events", json=payload)
@@ -1084,7 +1084,7 @@ def test_wms_patch_update_layer(client: TestClient):
 
     # Patch with IGN Cadastre layer
     cadastre_url = (
-        "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile"
+        "https://data.geopf.fr/wmts?SERVICE=WMTS&REQUEST=GetTile"
         "&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal"
         "&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fpng"
     )
@@ -1136,7 +1136,7 @@ def test_wms_reset_to_null(client: TestClient):
             "start_date": (now + timedelta(days=5)).isoformat(),
             "end_date": (now + timedelta(days=5, hours=8)).isoformat(),
             "price_per_meter": 3.0,
-            "wms_url": "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2",
+            "wms_url": "https://data.geopf.fr/wmts?SERVICE=WMTS&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2",
             "wms_layer": "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2",
         },
     )
@@ -1181,7 +1181,7 @@ def test_wms_null_by_default(client: TestClient):
 def test_duplicate_event_preserves_wms_layers(client: TestClient):
     """Test that duplicating an event preserves wms_url and wms_layer."""
     now = datetime.now(timezone.utc)
-    wms_url = "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+    wms_url = "https://data.geopf.fr/wmts?SERVICE=WMTS&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
     wms_layer = "CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
 
     create_res = client.post(
