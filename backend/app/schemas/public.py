@@ -86,6 +86,8 @@ class PublicEventResponse(BaseModel):
     center_latitude: Optional[float] = None
     center_longitude: Optional[float] = None
     default_zoom: Optional[int] = None
+    wms_url: Optional[str] = None
+    wms_layer: Optional[str] = None
     price_per_meter_cents: int
     price_per_meter: float = Field(..., description="Tarif au mètre en euros")
     

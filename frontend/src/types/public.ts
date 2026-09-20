@@ -52,6 +52,8 @@ export interface PublicEventResponse {
   organizer_email?: string | null;
   rules_text?: string | null;
   status: string;
+  wms_url?: string | null;
+  wms_layer?: string | null;
   total_spots?: number;
   available_spots?: number;
   created_at?: string | null;

@@ -23,6 +23,8 @@ class Event(Base):
     center_latitude = Column(Float, nullable=True)
     center_longitude = Column(Float, nullable=True)
     default_zoom = Column(Integer, nullable=True, default=16)
+    wms_url = Column(String(1024), nullable=True)
+    wms_layer = Column(String(255), nullable=True)
     price_per_meter_cents = Column(Integer, nullable=False)
     
     # Dates and schedule

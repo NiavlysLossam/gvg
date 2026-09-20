@@ -33,7 +33,14 @@ import {
   createSpotsBatch,
   renumberSpotsBatch,
   getImageUrl,
+  updateEvent,
 } from '../lib/api';
+import {
+  PRESET_LAYERS,
+  CUSTOM_LAYER_ID,
+  buildTileLayer,
+  findPresetByUrl,
+} from '../lib/mapLayers';
 import { SpotPropertyDrawer, SpotFormData } from './SpotPropertyDrawer';
 import { DuplicateSpotModal } from './DuplicateSpotModal';
 import { BatchRenumberModal } from './BatchRenumberModal';
@@ -161,6 +168,7 @@ function calculatePolygonSnapDelta(
 export const SpotEditor: React.FC<SpotEditorProps> = ({
   event,
   onBack,
+  onEventUpdated,
   onNavigateToCalibration,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
@@ -213,8 +221,18 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
   // Batch deleting state
   const [isBatchDeleting, setIsBatchDeleting] = useState<boolean>(false);
 
-  // Tile layer state for outdoor mode
-  const [tileLayerType, setTileLayerType] = useState<'osm' | 'satellite'>('osm');
+  // Tile layer state for outdoor mode — selectedLayerId can be a preset id or CUSTOM_LAYER_ID
+  const [selectedLayerId, setSelectedLayerId] = useState<string>(() => {
+    const preset = findPresetByUrl(event.wms_url);
+    return preset ? preset.id : event.wms_url ? CUSTOM_LAYER_ID : 'osm';
+  });
+  const [customWmsUrl, setCustomWmsUrl] = useState<string>(
+    event.wms_url && !findPresetByUrl(event.wms_url) ? event.wms_url : ''
+  );
+  const [customWmsLabel, setCustomWmsLabel] = useState<string>(
+    event.wms_url && !findPresetByUrl(event.wms_url) ? (event.wms_layer ?? '') : ''
+  );
+  const [isSavingLayer, setIsSavingLayer] = useState<boolean>(false);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -447,21 +465,22 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
         zoomControl: true,
       });
 
-      const osmUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-      const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-      const satUrl =
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      const satAttr =
-        'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP';
+      // Determine initial tile layer from current selection
+      let initialUrl: string;
+      let initialAttr: string;
+      let initialMaxNativeZoom = 19;
 
-      const initialUrl = tileLayerType === 'satellite' ? satUrl : osmUrl;
-      const initialAttr = tileLayerType === 'satellite' ? satAttr : osmAttr;
+      if (selectedLayerId === CUSTOM_LAYER_ID && customWmsUrl) {
+        initialUrl = customWmsUrl;
+        initialAttr = '&copy; Source WMS personnalisée';
+      } else {
+        const preset = PRESET_LAYERS.find((p) => p.id === selectedLayerId) ?? PRESET_LAYERS[0];
+        initialUrl = preset.url;
+        initialAttr = preset.attribution;
+        initialMaxNativeZoom = preset.maxNativeZoom;
+      }
 
-      const tileLayer = L.tileLayer(initialUrl, {
-        maxZoom: 22,
-        maxNativeZoom: 19,
-        attribution: initialAttr,
-      }).addTo(map);
+      const tileLayer = buildTileLayer(initialUrl, initialAttr, initialMaxNativeZoom).addTo(map);
       tileLayerRef.current = tileLayer;
 
       setupGeoman(map);
@@ -941,30 +960,68 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
     });
   }, [spots, event.id, mapReady, selectedSpot?.id, selectedSpotIds]);
 
-  // Switch outdoor tile layer between OSM and Satellite dynamically
-  const toggleTileLayer = (type: 'osm' | 'satellite') => {
-    setTileLayerType(type);
+  // Apply and persist a tile layer selection
+  const applyLayer = async (layerId: string, customUrl?: string, customLabel?: string) => {
     if (!mapInstanceRef.current || event.map_type !== 'geographic') return;
 
+    const previousLayerId = selectedLayerId;
+    const previousTileLayer = tileLayerRef.current;
+
+    // Determine url/attr for the chosen layer
+    let url: string;
+    let attr: string;
+    let maxNativeZoom = 19;
+    let wmsUrlToSave: string | null = null;
+    let wmsLayerToSave: string | null = null;
+
+    if (layerId === CUSTOM_LAYER_ID) {
+      const effectiveUrl = (customUrl ?? customWmsUrl).trim();
+      const effectiveLabel = (customLabel ?? customWmsLabel).trim();
+      if (!effectiveUrl) return; // nothing to apply yet
+      url = effectiveUrl;
+      attr = '&copy; Source WMS personnalisée';
+      wmsUrlToSave = effectiveUrl;
+      wmsLayerToSave = effectiveLabel || null;
+    } else {
+      const preset = PRESET_LAYERS.find((p) => p.id === layerId) ?? PRESET_LAYERS[0];
+      url = preset.url;
+      attr = preset.attribution;
+      maxNativeZoom = preset.maxNativeZoom;
+      // For OSM (default) store null so we don't pollute the DB with the default
+      wmsUrlToSave = preset.id === 'osm' ? null : preset.url;
+      wmsLayerToSave = preset.id === 'osm' ? null : preset.label;
+    }
+
+    // Update Leaflet tile layer immediately
+    const newTileLayer = buildTileLayer(url, attr, maxNativeZoom);
     if (tileLayerRef.current) {
       mapInstanceRef.current.removeLayer(tileLayerRef.current);
     }
+    newTileLayer.addTo(mapInstanceRef.current);
+    tileLayerRef.current = newTileLayer;
 
-    const osmUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-    const satUrl =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    const satAttr =
-      'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP';
-
-    const url = type === 'satellite' ? satUrl : osmUrl;
-    const attr = type === 'satellite' ? satAttr : osmAttr;
-
-    tileLayerRef.current = L.tileLayer(url, {
-      maxZoom: 22,
-      maxNativeZoom: 19,
-      attribution: attr,
-    }).addTo(mapInstanceRef.current);
+    // Persist via PATCH
+    setIsSavingLayer(true);
+    try {
+      const updated = await updateEvent(event.id, { wms_url: wmsUrlToSave, wms_layer: wmsLayerToSave });
+      onEventUpdated?.(updated);
+    } catch (err: unknown) {
+      // Rollback tile layer and selector state on failure
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.removeLayer(newTileLayer);
+        if (previousTileLayer) {
+          previousTileLayer.addTo(mapInstanceRef.current);
+          tileLayerRef.current = previousTileLayer;
+        }
+      }
+      setSelectedLayerId(previousLayerId);
+      showToast(
+        err instanceof Error ? err.message : 'Erreur lors de la sauvegarde de la couche',
+        'error'
+      );
+    } finally {
+      setIsSavingLayer(false);
+    }
   };
 
   // Stats without floating point drift
@@ -1058,31 +1115,65 @@ export const SpotEditor: React.FC<SpotEditorProps> = ({
             </div>
           </div>
 
-          {/* Satellite switch for outdoor mode */}
+          {/* Layer selector for outdoor mode */}
           {event.map_type === 'geographic' && (
-            <div className="inline-flex rounded-lg border border-gray-200 bg-gray-50 p-1">
-              <button
-                type="button"
-                onClick={() => toggleTileLayer('osm')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition ${
-                  tileLayerType === 'osm'
-                    ? 'bg-white text-gray-900 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-900'
-                }`}
-              >
-                Plan OSM
-              </button>
-              <button
-                type="button"
-                onClick={() => toggleTileLayer('satellite')}
-                className={`px-2.5 py-1 text-xs font-semibold rounded-md transition ${
-                  tileLayerType === 'satellite'
-                    ? 'bg-white text-gray-900 shadow-xs'
-                    : 'text-gray-500 hover:text-gray-900'
-                }`}
-              >
-                Satellite
-              </button>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Layers className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                <select
+                  value={selectedLayerId}
+                  onChange={(e) => {
+                    const newId = e.target.value;
+                    setSelectedLayerId(newId);
+                    if (newId !== CUSTOM_LAYER_ID) {
+                      applyLayer(newId);
+                    }
+                  }}
+                  disabled={isSavingLayer}
+                  className="text-xs font-semibold border border-gray-200 rounded-lg bg-white text-gray-800 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-500 disabled:opacity-60 cursor-pointer"
+                  title="Choisir le fond de carte"
+                >
+                  {PRESET_LAYERS.map((layer) => (
+                    <option key={layer.id} value={layer.id}>
+                      {layer.label}
+                    </option>
+                  ))}
+                  <option value={CUSTOM_LAYER_ID}>Flux WMS personnalisé</option>
+                </select>
+                {isSavingLayer && (
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-600 animate-spin shrink-0" />
+                )}
+              </div>
+
+              {/* Custom WMS URL+label inputs */}
+              {selectedLayerId === CUSTOM_LAYER_ID && (
+                <div className="flex flex-col gap-1">
+                  <input
+                    type="url"
+                    placeholder="URL du flux WMS (ex: https://.../{z}/{x}/{y}.png)"
+                    value={customWmsUrl}
+                    onChange={(e) => setCustomWmsUrl(e.target.value)}
+                    className="text-xs border border-gray-200 rounded-lg px-2 py-1 w-64 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                  />
+                  <div className="flex gap-1">
+                    <input
+                      type="text"
+                      placeholder="Nom de la couche (optionnel)"
+                      value={customWmsLabel}
+                      onChange={(e) => setCustomWmsLabel(e.target.value)}
+                      className="text-xs border border-gray-200 rounded-lg px-2 py-1 flex-1 focus:outline-none focus:ring-1 focus:ring-emerald-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => applyLayer(CUSTOM_LAYER_ID, customWmsUrl.trim(), customWmsLabel.trim())}
+                      disabled={!customWmsUrl.trim() || isSavingLayer}
+                      className="text-xs px-2 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold disabled:opacity-40 transition"
+                    >
+                      Appliquer
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

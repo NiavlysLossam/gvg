@@ -13,6 +13,8 @@ export interface EventModel {
   center_latitude?: number | null;
   center_longitude?: number | null;
   default_zoom?: number | null;
+  wms_url?: string | null;
+  wms_layer?: string | null;
   price_per_meter_cents: number;
   price_per_meter: number;
   start_date: string;
@@ -40,6 +42,8 @@ export interface EventCreateInput {
   center_latitude?: number;
   center_longitude?: number;
   default_zoom?: number;
+  wms_url?: string | null;
+  wms_layer?: string | null;
   start_date: string;
   end_date: string;
   setup_start_time?: string;
@@ -62,6 +66,8 @@ export interface EventUpdateInput {
   center_latitude?: number | null;
   center_longitude?: number | null;
   default_zoom?: number | null;
+  wms_url?: string | null;
+  wms_layer?: string | null;
   price_per_meter?: number;
   start_date?: string;
   end_date?: string;

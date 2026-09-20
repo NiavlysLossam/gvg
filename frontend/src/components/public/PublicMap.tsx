@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Crosshair, Layers } from 'lucide-react';
+import { Crosshair } from 'lucide-react';
 import { PublicEventResponse, PublicSpotFeature } from '../../types/public';
 import { getImageUrl } from '../../lib/api';
+import { buildTileLayer, findPresetByUrl, getDefaultLayer } from '../../lib/mapLayers';
 
 interface PublicMapProps {
   event: PublicEventResponse;
@@ -39,7 +40,6 @@ export const PublicMap: React.FC<PublicMapProps> = ({
   const initialFitDoneRef = useRef<string | null>(null);
   const [mapReady, setMapReady] = useState<boolean>(false);
   const [mapLoadError, setMapLoadError] = useState<string | null>(null);
-  const [tileLayerType, setTileLayerType] = useState<'osm' | 'satellite'>('osm');
   const tileLayerRef = useRef<L.TileLayer | null>(null);
 
   // Recenter / fitBounds handler
@@ -116,21 +116,28 @@ export const PublicMap: React.FC<PublicMapProps> = ({
       // Add zoom control top-left
       L.control.zoom({ position: 'topleft' }).addTo(map);
 
-      const osmUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-      const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-      const satUrl =
-        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-      const satAttr =
-        'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP';
+      // Determine tile layer from event.wms_url (organizer's choice), falling back to OSM
+      const effectiveWmsUrl = event.wms_url?.trim() || null;
+      const preset = findPresetByUrl(effectiveWmsUrl);
+      let tileUrl: string;
+      let tileAttr: string;
+      let tileMaxNativeZoom = 19;
 
-      const initialUrl = tileLayerType === 'satellite' ? satUrl : osmUrl;
-      const initialAttr = tileLayerType === 'satellite' ? satAttr : osmAttr;
+      if (preset) {
+        tileUrl = preset.url;
+        tileAttr = preset.attribution;
+        tileMaxNativeZoom = preset.maxNativeZoom;
+      } else if (effectiveWmsUrl) {
+        // Custom WMS URL stored by organizer
+        tileUrl = effectiveWmsUrl;
+        tileAttr = '&copy; Source WMS personnalisée';
+      } else {
+        const defaultLayer = getDefaultLayer();
+        tileUrl = defaultLayer.url;
+        tileAttr = defaultLayer.attribution;
+      }
 
-      const tileLayer = L.tileLayer(initialUrl, {
-        maxZoom: 22,
-        maxNativeZoom: 19,
-        attribution: initialAttr,
-      }).addTo(map);
+      const tileLayer = buildTileLayer(tileUrl, tileAttr, tileMaxNativeZoom).addTo(map);
       tileLayerRef.current = tileLayer;
 
       const spotsGroup = L.layerGroup().addTo(map);
@@ -203,34 +210,8 @@ export const PublicMap: React.FC<PublicMapProps> = ({
         mapInstanceRef.current = null;
       }
     };
-  }, [event.map_type, event.background_image_url]);
+  }, [event.map_type, event.background_image_url, event.wms_url]);
 
-  // Switch tile layer in geographic mode
-  useEffect(() => {
-    if (event.map_type !== 'geographic' || !mapInstanceRef.current) return;
-
-    const osmUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
-    const osmAttr = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
-    const satUrl =
-      'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
-    const satAttr =
-      'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP';
-
-    if (tileLayerRef.current) {
-      mapInstanceRef.current.removeLayer(tileLayerRef.current);
-    }
-
-    const newUrl = tileLayerType === 'satellite' ? satUrl : osmUrl;
-    const newAttr = tileLayerType === 'satellite' ? satAttr : osmAttr;
-
-    const newLayer = L.tileLayer(newUrl, {
-      maxZoom: 22,
-      maxNativeZoom: 19,
-      attribution: newAttr,
-    }).addTo(mapInstanceRef.current);
-
-    tileLayerRef.current = newLayer;
-  }, [tileLayerType, event.map_type]);
 
   // Render stalls on map
   useEffect(() => {
@@ -387,23 +368,6 @@ export const PublicMap: React.FC<PublicMapProps> = ({
 
       {/* Floating Recenter Button */}
       <div className="absolute bottom-6 right-4 z-30 flex flex-col items-end gap-2">
-        {event.map_type === 'geographic' && (
-          <button
-            onClick={() =>
-              setTileLayerType((prev) => (prev === 'osm' ? 'satellite' : 'osm'))
-            }
-            className="bg-white/95 text-gray-700 hover:text-gray-900 shadow-md rounded-full p-3 hover:bg-white active:scale-95 transition flex items-center justify-center border border-gray-200"
-            title={
-              tileLayerType === 'osm'
-                ? 'Basculer vers la vue satellite'
-                : 'Basculer vers la vue plan'
-            }
-            aria-label="Basculer le type de carte"
-          >
-            <Layers className="w-5 h-5 text-emerald-700" />
-          </button>
-        )}
-
         <button
           onClick={handleRecenter}
           className="bg-white text-gray-700 shadow-md rounded-full p-3 hover:bg-gray-50 active:scale-95 transition flex items-center justify-center border border-gray-200 group"

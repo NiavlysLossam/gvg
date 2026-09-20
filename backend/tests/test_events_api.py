@@ -1048,5 +1048,167 @@ def test_duplicate_event_validation_and_access_control(client: TestClient, db_se
     assert non_existent.status_code == 404
 
 
+def test_wms_create_with_wms_url(client: TestClient):
+    """Test creating an event with wms_url and wms_layer persists both fields."""
+    now = datetime.now(timezone.utc)
+    payload = {
+        "title": "Vide-Grenier WMS IGN",
+        "start_date": (now + timedelta(days=10)).isoformat(),
+        "end_date": (now + timedelta(days=10, hours=8)).isoformat(),
+        "price_per_meter": 4.0,
+        "map_type": "geographic",
+        "wms_url": "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile&VERSION=1.0.0&LAYER=ORTHOIMAGERY.ORTHOPHOTOS&STYLE=normal&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fjpeg",
+        "wms_layer": "ORTHOIMAGERY.ORTHOPHOTOS",
+    }
+    response = client.post("/api/v1/events", json=payload)
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data["wms_url"] == payload["wms_url"]
+    assert data["wms_layer"] == payload["wms_layer"]
+
+
+def test_wms_patch_update_layer(client: TestClient):
+    """Test updating wms_url and wms_layer via PATCH persists new values."""
+    now = datetime.now(timezone.utc)
+    create_resp = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier WMS Patch",
+            "start_date": (now + timedelta(days=5)).isoformat(),
+            "end_date": (now + timedelta(days=5, hours=8)).isoformat(),
+            "price_per_meter": 3.0,
+        },
+    )
+    assert create_resp.status_code == 201
+    event_id = create_resp.json()["id"]
+
+    # Patch with IGN Cadastre layer
+    cadastre_url = (
+        "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&REQUEST=GetTile"
+        "&VERSION=1.0.0&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS&STYLE=normal"
+        "&TILEMATRIXSET=PM&TILEMATRIX={z}&TILEROW={y}&TILECOL={x}&FORMAT=image%2Fpng"
+    )
+    patch_resp = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"wms_url": cadastre_url, "wms_layer": "CADASTRALPARCELS.PARCELLAIRE_EXPRESS"},
+    )
+    assert patch_resp.status_code == 200
+    updated = patch_resp.json()
+    assert updated["wms_url"] == cadastre_url
+    assert updated["wms_layer"] == "CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+
+
+def test_wms_read_persisted_layer(client: TestClient):
+    """Test that wms_url is returned on GET after being set via PATCH."""
+    now = datetime.now(timezone.utc)
+    create_resp = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier WMS Read",
+            "start_date": (now + timedelta(days=5)).isoformat(),
+            "end_date": (now + timedelta(days=5, hours=8)).isoformat(),
+            "price_per_meter": 3.0,
+        },
+    )
+    assert create_resp.status_code == 201
+    event_id = create_resp.json()["id"]
+
+    wms_url = "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"wms_url": wms_url, "wms_layer": "OSM"},
+    )
+
+    get_resp = client.get(f"/api/v1/events/{event_id}")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert data["wms_url"] == wms_url
+    assert data["wms_layer"] == "OSM"
+
+
+def test_wms_reset_to_null(client: TestClient):
+    """Test that wms_url can be reset to null via PATCH (default OSM applies)."""
+    now = datetime.now(timezone.utc)
+    create_resp = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier WMS Reset",
+            "start_date": (now + timedelta(days=5)).isoformat(),
+            "end_date": (now + timedelta(days=5, hours=8)).isoformat(),
+            "price_per_meter": 3.0,
+            "wms_url": "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&LAYER=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2",
+            "wms_layer": "GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2",
+        },
+    )
+    assert create_resp.status_code == 201
+    event_id = create_resp.json()["id"]
+    assert create_resp.json()["wms_url"] is not None
+
+    # Reset to null
+    patch_resp = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"wms_url": None, "wms_layer": None},
+    )
+    assert patch_resp.status_code == 200
+    assert patch_resp.json()["wms_url"] is None
+    assert patch_resp.json()["wms_layer"] is None
+
+    # Confirm via GET
+    get_resp = client.get(f"/api/v1/events/{event_id}")
+    assert get_resp.status_code == 200
+    assert get_resp.json()["wms_url"] is None
+    assert get_resp.json()["wms_layer"] is None
+
+
+def test_wms_null_by_default(client: TestClient):
+    """Test that wms_url and wms_layer are null by default (no regression for existing events)."""
+    now = datetime.now(timezone.utc)
+    create_resp = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier WMS Default Null",
+            "start_date": (now + timedelta(days=5)).isoformat(),
+            "end_date": (now + timedelta(days=5, hours=8)).isoformat(),
+            "price_per_meter": 3.0,
+        },
+    )
+    assert create_resp.status_code == 201
+    data = create_resp.json()
+    assert data["wms_url"] is None
+    assert data["wms_layer"] is None
+
+
+def test_duplicate_event_preserves_wms_layers(client: TestClient):
+    """Test that duplicating an event preserves wms_url and wms_layer."""
+    now = datetime.now(timezone.utc)
+    wms_url = "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&LAYER=CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+    wms_layer = "CADASTRALPARCELS.PARCELLAIRE_EXPRESS"
+
+    create_res = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier WMS Original",
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=10, hours=8)).isoformat(),
+            "price_per_meter": 4.0,
+            "wms_url": wms_url,
+            "wms_layer": wms_layer,
+        },
+    )
+    assert create_res.status_code == 201
+    source_id = create_res.json()["id"]
+
+    dup_res = client.post(
+        f"/api/v1/events/{source_id}/duplicate",
+        json={"title": "Vide-Grenier WMS Clone"},
+    )
+    assert dup_res.status_code == 201
+    data = dup_res.json()
+    assert data["wms_url"] == wms_url
+    assert data["wms_layer"] == wms_layer
+
+
+
+
 
 

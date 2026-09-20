@@ -21,6 +21,8 @@ class EventBase(BaseModel):
     center_latitude: Optional[float] = Field(None, ge=-90.0, le=90.0, description="Latitude du centre de la carte")
     center_longitude: Optional[float] = Field(None, ge=-180.0, le=180.0, description="Longitude du centre de la carte")
     default_zoom: Optional[int] = Field(None, ge=1, le=22, description="Niveau de zoom par défaut")
+    wms_url: Optional[str] = Field(None, max_length=1024, description="URL du serveur WMTS/WMS pour le fond de carte personnalisé")
+    wms_layer: Optional[str] = Field(None, max_length=255, description="Nom de la couche WMS/WMTS sélectionnée")
     
     start_date: datetime = Field(..., description="Date et heure de début de l'événement")
     end_date: datetime = Field(..., description="Date et heure de fin de l'événement")
@@ -73,6 +75,8 @@ class EventUpdate(BaseModel):
     center_latitude: Optional[float] = Field(None, ge=-90.0, le=90.0)
     center_longitude: Optional[float] = Field(None, ge=-180.0, le=180.0)
     default_zoom: Optional[int] = Field(None, ge=1, le=22)
+    wms_url: Optional[str] = Field(None, max_length=1024)
+    wms_layer: Optional[str] = Field(None, max_length=255)
     
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None

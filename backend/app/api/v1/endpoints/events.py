@@ -669,6 +669,8 @@ def duplicate_event(
         center_latitude=event.center_latitude,
         center_longitude=event.center_longitude,
         default_zoom=event.default_zoom,
+        wms_url=event.wms_url,
+        wms_layer=event.wms_layer,
         price_per_meter_cents=event.price_per_meter_cents,
         start_date=new_start,
         end_date=new_end,

@@ -70,6 +70,23 @@ def test_get_public_event_by_slug_success(client: TestClient):
     assert "stripe_account_id" not in data
 
 
+def test_get_public_event_with_wms_layer(client: TestClient):
+    """Verify that public event endpoint exposes wms_url and wms_layer to the public map."""
+    wms_url = "https://wxs.ign.fr/decouverte/geoportail/wmts?SERVICE=WMTS&LAYER=ORTHOIMAGERY.ORTHOPHOTOS"
+    wms_layer = "ORTHOIMAGERY.ORTHOPHOTOS"
+    event = create_sample_event(client, title="Brocante IGN WMS")
+    event_id = event["id"]
+    patch_resp = client.patch(f"/api/v1/events/{event_id}", json={"wms_url": wms_url, "wms_layer": wms_layer})
+    assert patch_resp.status_code == 200
+
+    slug = event["slug"]
+    response = client.get(f"/api/v1/public/events/{slug}")
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["wms_url"] == wms_url
+    assert data["wms_layer"] == wms_layer
+
+
 def test_get_public_event_404_not_found(client: TestClient):
     response = client.get("/api/v1/public/events/inexistent-slug-12345")
     assert response.status_code == 404

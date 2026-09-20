@@ -210,6 +210,8 @@ def get_public_event(
         center_latitude=event.center_latitude,
         center_longitude=event.center_longitude,
         default_zoom=event.default_zoom,
+        wms_url=event.wms_url,
+        wms_layer=event.wms_layer,
         price_per_meter_cents=event.price_per_meter_cents,
         price_per_meter=event.price_per_meter,
         start_date=event.start_date,
