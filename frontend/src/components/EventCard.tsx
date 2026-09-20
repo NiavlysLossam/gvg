@@ -95,8 +95,9 @@ export const EventCard: React.FC<EventCardProps> = ({
         </div>
       </div>
 
-      <div className="pt-5 mt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+      <div className="pt-4 mt-4 border-t border-gray-100 flex flex-col gap-2.5">
+        {/* Actions secondaires et de configuration */}
+        <div className="flex flex-wrap items-center gap-1.5">
           <button
             type="button"
             onClick={() => onConfigurePlan?.(event)}
@@ -142,18 +143,6 @@ export const EventCard: React.FC<EventCardProps> = ({
             </button>
           )}
 
-          {onOpenInscriptions && (
-            <button
-              type="button"
-              onClick={() => onOpenInscriptions(event)}
-              className="inline-flex items-center gap-1 px-2.5 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-semibold rounded-lg border border-indigo-200 transition"
-              title="Voir le tableau de bord des inscriptions"
-            >
-              <Users className="w-3.5 h-3.5 text-indigo-600" />
-              <span>Inscriptions</span>
-            </button>
-          )}
-
           {onDelete && (
             <button
               type="button"
@@ -162,21 +151,36 @@ export const EventCard: React.FC<EventCardProps> = ({
               title="Supprimer l'événement (Super-Admin)"
             >
               <Trash2 className="w-3.5 h-3.5 text-red-600" />
-              <span className="hidden sm:inline">Supprimer</span>
+              <span>Supprimer</span>
             </button>
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => onOpenEditor?.(event)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition"
-          title="Ouvrir l'éditeur de tracé vectoriel des stands"
-        >
-          <PenTool className="w-3.5 h-3.5" />
-          <span>Éditeur de stands</span>
-          <ChevronRight className="w-3 h-3" />
-        </button>
+        {/* Actions principales d'exploitation */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+          {onOpenInscriptions ? (
+            <button
+              type="button"
+              onClick={() => onOpenInscriptions(event)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold rounded-lg border border-indigo-200 transition"
+              title="Voir le tableau de bord des inscriptions"
+            >
+              <Users className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Inscriptions</span>
+            </button>
+          ) : <div />}
+
+          <button
+            type="button"
+            onClick={() => onOpenEditor?.(event)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition ml-auto"
+            title="Ouvrir l'éditeur de tracé vectoriel des stands"
+          >
+            <PenTool className="w-3.5 h-3.5" />
+            <span>Éditeur de stands</span>
+            <ChevronRight className="w-3 h-3" />
+          </button>
+        </div>
       </div>
     </div>
   );
