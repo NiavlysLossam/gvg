@@ -12,10 +12,12 @@ import {
   Mail,
   CheckCircle2,
   AlertCircle,
+  Eye,
 } from 'lucide-react';
 import { EventModel } from '../../types/event';
 import { AdminOrder, DashboardStats, getCancellationReasonLabel } from '../../types/order';
 import { getAdminAttestationPdfUrl } from '../../lib/api';
+import { OrderDetailsDrawer } from './OrderDetailsDrawer';
 
 export type SortField = 'date' | 'name' | 'stand' | 'amount' | 'status';
 export type SortOrder = 'asc' | 'desc';
@@ -44,6 +46,7 @@ interface RegistrationsTabProps {
   onOpenApproveModal: (order: AdminOrder) => void;
   onOpenRejectModal: (order: AdminOrder) => void;
   onOpenRejectCancellationModal: (order: AdminOrder) => void;
+  onOrderUpdated?: (updatedOrder: AdminOrder) => void;
 }
 
 const ITEMS_PER_PAGE = 25;
@@ -72,8 +75,17 @@ export const RegistrationsTab: React.FC<RegistrationsTabProps> = ({
   onOpenApproveModal,
   onOpenRejectModal,
   onOpenRejectCancellationModal,
+  onOrderUpdated,
 }) => {
   const [currentPage, setCurrentPage] = useState<number>(1);
+  const [selectedOrderForDrawer, setSelectedOrderForDrawer] = useState<AdminOrder | null>(null);
+
+  const handleOrderUpdated = (updatedOrder: AdminOrder) => {
+    setSelectedOrderForDrawer(updatedOrder);
+    if (onOrderUpdated) {
+      onOrderUpdated(updatedOrder);
+    }
+  };
 
   // Reset page on search or filter change
   React.useEffect(() => {
@@ -525,18 +537,36 @@ export const RegistrationsTab: React.FC<RegistrationsTabProps> = ({
                   return (
                     <tr
                       key={order.id}
-                      className={`hover:bg-gray-50/80 transition ${
+                      onClick={(e) => {
+                        const target = e.target as HTMLElement;
+                        if (target.closest('input') || target.closest('button') || target.closest('a') || target.closest('.checkbox-cell')) {
+                          return;
+                        }
+                        setSelectedOrderForDrawer(order);
+                      }}
+                      className={`hover:bg-gray-50/80 cursor-pointer transition ${
                         isSelected ? 'bg-emerald-50/40' : ''
                       }`}
                     >
-                      <td className="px-4 py-3">
+                      <td
+                        className="px-4 py-3 checkbox-cell cursor-default"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (e.target === e.currentTarget && isConfirmed) {
+                            onToggleSelectOrder(order.id);
+                          }
+                        }}
+                      >
                         <input
                           type="checkbox"
                           checked={isSelected}
                           disabled={!isConfirmed}
-                          onChange={() => onToggleSelectOrder(order.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={() => {
+                            if (isConfirmed) onToggleSelectOrder(order.id);
+                          }}
                           aria-label={`Sélectionner l'exposant ${order.full_name}`}
-                          className="w-4 h-4 rounded-sm border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-30"
+                          className="w-4 h-4 rounded-sm border-gray-300 text-emerald-600 focus:ring-emerald-500 disabled:opacity-30 cursor-pointer"
                         />
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-xs text-gray-500 font-mono">
@@ -645,6 +675,14 @@ export const RegistrationsTab: React.FC<RegistrationsTabProps> = ({
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap text-right text-xs">
                         <div className="flex items-center justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedOrderForDrawer(order)}
+                            className="p-1.5 text-gray-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-lg border border-gray-200 hover:border-emerald-300 transition"
+                            title="Consulter et modifier la fiche détaillée de l'inscription"
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           {isConfirmed && (
                             <a
                               href={getAdminAttestationPdfUrl(event.slug || event.id, order.id)}
@@ -745,6 +783,15 @@ export const RegistrationsTab: React.FC<RegistrationsTabProps> = ({
           </div>
         )}
       </div>
+
+      {/* Slide-over Drawer for Order Details */}
+      <OrderDetailsDrawer
+        event={event}
+        order={selectedOrderForDrawer}
+        isOpen={Boolean(selectedOrderForDrawer)}
+        onClose={() => setSelectedOrderForDrawer(null)}
+        onOrderUpdated={handleOrderUpdated}
+      />
     </div>
   );
 };

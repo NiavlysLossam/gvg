@@ -4,6 +4,7 @@ import logging
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 from email.header import Header
 from email.utils import formataddr
 from datetime import datetime
@@ -72,9 +73,11 @@ def send_raw_email(
     order_id: Optional[uuid.UUID] = None,
     email_type: str = "general",
     db: Optional[Session] = None,
+    attachments: Optional[List[Tuple[str, bytes, str]]] = None,
 ) -> Optional[EmailLog]:
     """
     Core function to deliver an email via SMTP or simulate delivery in development.
+    Supports optional attachments list of (filename, content_bytes, mime_type).
     Persists an EmailLog record in the database for traceability and audit.
     Never raises exceptions to the caller.
     """
@@ -95,21 +98,45 @@ def send_raw_email(
         if not settings.SMTP_HOST:
             # Simulated mode (development / tests)
             status = "simulated"
+            att_info = f" (attachments: {len(attachments)})" if attachments else ""
             logger.info(
-                f"[EMAIL SIMULATION] Type: {email_type} | To: {recipient} | Subject: '{subject_safe}'"
+                f"[EMAIL SIMULATION] Type: {email_type} | To: {recipient} | Subject: '{subject_safe}'{att_info}"
             )
         else:
             # Actual SMTP transmission with RFC 5322 UTF-8 compliant headers
-            msg = MIMEMultipart("alternative")
-            msg["Subject"] = Header(subject_safe, "utf-8")
             from_name = str(Header(settings.EMAILS_FROM_NAME or "GVG", "utf-8"))
-            msg["From"] = formataddr((from_name, settings.EMAILS_FROM_EMAIL))
-            msg["To"] = recipient
+            from_addr = formataddr((from_name, settings.EMAILS_FROM_EMAIL))
 
             part_text = MIMEText(text_content, "plain", "utf-8")
             part_html = MIMEText(html_content, "html", "utf-8")
-            msg.attach(part_text)
-            msg.attach(part_html)
+
+            if attachments:
+                # Multipart mixed container holding alternative body + application attachments
+                msg = MIMEMultipart("mixed")
+                msg["Subject"] = Header(subject_safe, "utf-8")
+                msg["From"] = from_addr
+                msg["To"] = recipient
+
+                alt_part = MIMEMultipart("alternative")
+                alt_part.attach(part_text)
+                alt_part.attach(part_html)
+                msg.attach(alt_part)
+
+                for att in attachments:
+                    filename = att[0]
+                    content_bytes = att[1]
+                    content_type = att[2] if len(att) > 2 and att[2] else "application/octet-stream"
+                    _, _, sub_type = content_type.partition("/")
+                    part = MIMEApplication(content_bytes, _subtype=sub_type or "octet-stream")
+                    part.add_header("Content-Disposition", "attachment", filename=filename)
+                    msg.attach(part)
+            else:
+                msg = MIMEMultipart("alternative")
+                msg["Subject"] = Header(subject_safe, "utf-8")
+                msg["From"] = from_addr
+                msg["To"] = recipient
+                msg.attach(part_text)
+                msg.attach(part_html)
 
             server = None
             try:
@@ -595,3 +622,105 @@ def send_event_cancellation_email(
     finally:
         if own_session:
             session.close()
+
+
+def send_attestation_email(
+    order: Union[Order, uuid.UUID],
+    event: Union[Event, uuid.UUID],
+    db: Optional[Session] = None,
+) -> Optional[EmailLog]:
+    """
+    Send or resend the official sworn statement (Attestation sur l'honneur) PDF
+    by email to the exhibitor with an in-memory PDF attachment.
+    Only confirmed orders with an email are processed.
+    """
+    session, own_session = get_session(db)
+    try:
+        local_order, local_event = _resolve_order_and_event(session, order, event)
+        if not local_order or not local_event or not local_order.email:
+            return None
+
+        if local_order.status != "confirmed":
+            logger.warning(
+                f"Attestation email skipped: order {local_order.id} status is {local_order.status}, expected confirmed."
+            )
+            return None
+
+        spot_labels = get_order_spot_labels(local_order)
+        total_meters = get_order_linear_meters(local_order)
+        event_date = format_event_date(local_event.start_date)
+
+        base_url = settings.FRONTEND_BASE_URL.rstrip("/")
+        attestation_url = (
+            f"{base_url}/api/v1/public/events/{local_event.slug}/orders/{local_order.id}/attestation.pdf?token={local_order.access_token}"
+        )
+        confirmation_url = (
+            f"{base_url}/e/{local_event.slug}/confirmation/{local_order.id}?token={local_order.access_token}"
+        )
+
+        subject = f"Votre attestation d'inscription - {local_event.title}"
+
+        context = {
+            "event_title": local_event.title,
+            "event_date": event_date,
+            "event_location": local_event.location_address or "Consulter le plan",
+            "organizer_email": local_event.organizer_email,
+            "first_name": local_order.first_name,
+            "last_name": local_order.last_name,
+            "order_number": local_order.order_number,
+            "spot_labels": spot_labels,
+            "total_linear_meters": total_meters,
+            "confirmation_url": confirmation_url,
+            "attestation_url": attestation_url,
+        }
+
+        # Generate in-memory PDF attachment using pdf_service
+        attachments = []
+        try:
+            from app.services import pdf_service
+            pdf_bytes = pdf_service.generate_attestation_pdf(order=local_order, event=local_event)
+            filename = f"attestation_{local_order.order_number}.pdf"
+            attachments.append((filename, pdf_bytes, "application/pdf"))
+        except Exception as pdf_exc:
+            logger.error(
+                f"Failed to compile attestation PDF for order {local_order.id}: {pdf_exc}",
+                exc_info=True,
+            )
+            log_entry = EmailLog(
+                event_id=local_event.id,
+                order_id=local_order.id,
+                recipient=local_order.email,
+                email_type="attestation",
+                subject=subject,
+                status="failed",
+                error_message=f"PDF generation failed: {pdf_exc}",
+            )
+            session.add(log_entry)
+            session.commit()
+            return log_entry
+
+        try:
+            html, txt = render_template("attestation_resend", context)
+        except Exception as render_exc:
+            logger.error(
+                f"Template rendering error for attestation resend: {render_exc}",
+                exc_info=True,
+            )
+            html = f"<p>Bonjour {local_order.first_name}, veuillez trouver ci-joint votre attestation officielle pour {local_event.title}.</p>"
+            txt = f"Bonjour {local_order.first_name},\n\nVeuillez trouver ci-joint votre attestation officielle pour {local_event.title}."
+
+        return send_raw_email(
+            recipient=local_order.email,
+            subject=subject,
+            html_content=html,
+            text_content=txt,
+            event_id=local_event.id,
+            order_id=local_order.id,
+            email_type="attestation",
+            db=session,
+            attachments=attachments,
+        )
+    finally:
+        if own_session:
+            session.close()
+

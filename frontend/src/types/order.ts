@@ -200,4 +200,39 @@ export interface BulkEventCancelResponse {
   event_status: string;
 }
 
+export interface AdminOrderUpdateInput {
+  first_name?: string;
+  last_name?: string;
+  email?: string | null;
+  phone?: string;
+  street_address?: string | null;
+  postal_code?: string | null;
+  city?: string | null;
+  admin_notes?: string | null;
+}
+
+export interface ResendAttestationResponse {
+  success: boolean;
+  message: string;
+  email: string;
+}
+
+export interface OrderEmailLog {
+  id: string;
+  event_id?: string | null;
+  order_id?: string | null;
+  recipient: string;
+  email_type: string;
+  subject: string;
+  status: string;
+  error_message?: string | null;
+  created_at: string;
+}
+
+export interface OrderEmailLogListResponse {
+  items: OrderEmailLog[];
+  total: number;
+}
+
+
 

@@ -287,6 +287,11 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
     });
   };
 
+  const handleOrderUpdated = (updatedOrder: AdminOrder) => {
+    setOrders((prev) => prev.map((o) => (o.id === updatedOrder.id ? updatedOrder : o)));
+    setAllOrders((prev) => prev.map((o) => (o.id === updatedOrder.id ? updatedOrder : o)));
+  };
+
   const renderSortIcon = (field: SortField) => {
     if (sortField !== field) {
       return <ArrowUpDown className="w-3 h-3 text-gray-400 opacity-60 inline ml-1" />;
@@ -829,6 +834,7 @@ export const RegistrationsPage: React.FC<RegistrationsPageProps> = ({
               setRejectCancellationReason('');
               setModalError(null);
             }}
+            onOrderUpdated={handleOrderUpdated}
           />
         )}
       </div>

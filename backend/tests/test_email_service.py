@@ -96,6 +96,7 @@ def test_render_all_templates():
         "public_hours": "08:00 - 18:00",
         "confirmation_url": "https://gvg.local/e/test/confirmation/123?token=abc",
         "cancellation_url": "https://gvg.local/e/test/annulation/123?token=abc",
+        "attestation_url": "https://gvg.local/e/test/attestation.pdf",
         "approved": True,
         "accepted": True,
         "reason": "Motif de test",
@@ -107,6 +108,7 @@ def test_render_all_templates():
         "moderation_decision",
         "cancellation_arbitration",
         "event_cancellation",
+        "attestation_resend",
     ]
 
     for tmpl in templates:
@@ -209,6 +211,65 @@ def test_send_raw_email_smtp_failure_handling(db_session: Session, monkeypatch: 
     assert log.status == "failed"
     assert log.error_message is not None
     assert log.recipient == "exposant.fail@example.com"
+
+
+def test_send_raw_email_with_attachments_smtp_mime_structure(db_session: Session, monkeypatch: pytest.MonkeyPatch):
+    """Test send_raw_email with attachments builds a valid multipart/mixed MIME message for SMTP."""
+    import email as email_module
+    import smtplib
+    from unittest.mock import MagicMock
+
+    monkeypatch.setattr(settings, "SMTP_HOST", "mail.fake.org")
+    monkeypatch.setattr(settings, "SMTP_PORT", 25)
+    monkeypatch.setattr(settings, "SMTP_USER", None)
+    monkeypatch.setattr(settings, "SMTP_PASSWORD", None)
+    monkeypatch.setattr(settings, "SMTP_SSL", False)
+    monkeypatch.setattr(settings, "SMTP_TLS", False)
+
+    sent_payloads = []
+
+    class MockSMTP:
+        def __init__(self, host, port, timeout=10):
+            pass
+
+        def sendmail(self, from_addr, to_addrs, msg_str):
+            sent_payloads.append((from_addr, to_addrs, msg_str))
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", MockSMTP)
+
+    pdf_bytes = b"%PDF-1.4 simulated pdf document"
+    log = email_service.send_raw_email(
+        recipient="exposant.pdf@example.com",
+        subject="Votre attestation officielle",
+        html_content="<p>Voici votre attestation.</p>",
+        text_content="Voici votre attestation.",
+        email_type="attestation",
+        db=db_session,
+        attachments=[("attestation_test.pdf", pdf_bytes, "application/pdf")],
+    )
+
+    assert log is not None
+    assert log.status == "sent"
+    assert len(sent_payloads) == 1
+
+    from_addr, to_addrs, raw_message = sent_payloads[0]
+    assert "exposant.pdf@example.com" in to_addrs
+
+    parsed_msg = email_module.message_from_string(raw_message)
+    assert parsed_msg.is_multipart()
+    assert parsed_msg.get_content_type() == "multipart/mixed"
+
+    # Find attachment payload
+    payload_parts = parsed_msg.get_payload()
+    assert len(payload_parts) == 2  # alternative (body) + application (attachment)
+
+    att_part = payload_parts[1]
+    assert "attachment" in att_part.get("Content-Disposition", "")
+    assert "attestation_test.pdf" in att_part.get("Content-Disposition", "")
+    assert att_part.get_payload(decode=True) == pdf_bytes
 
 
 def test_send_order_confirmation_idempotency(db_session: Session, client: TestClient):

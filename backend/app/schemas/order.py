@@ -477,3 +477,96 @@ class BulkEventCancelResponse(BaseModel):
     event_status: str = "cancelled"
 
 
+class AdminOrderUpdate(BaseModel):
+    first_name: Optional[str] = Field(
+        default=None, min_length=1, max_length=100, description="Prénom de l'exposant"
+    )
+    last_name: Optional[str] = Field(
+        default=None, min_length=1, max_length=100, description="Nom de l'exposant"
+    )
+    email: Optional[str] = Field(
+        default=None, max_length=255, description="Adresse e-mail valide ou vide"
+    )
+    phone: Optional[str] = Field(
+        default=None, max_length=50, description="Numéro de téléphone (8 à 15 chiffres)"
+    )
+    street_address: Optional[str] = Field(
+        default=None, max_length=255, description="Adresse postale"
+    )
+    postal_code: Optional[str] = Field(
+        default=None, max_length=20, description="Code postal"
+    )
+    city: Optional[str] = Field(
+        default=None, max_length=100, description="Ville"
+    )
+    admin_notes: Optional[str] = Field(
+        default=None, max_length=5000, description="Notes administrateur internes (privées)"
+    )
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip().lower()
+        if not cleaned:
+            return None
+        if not EMAIL_REGEX.match(cleaned):
+            raise ValueError("L'adresse email est invalide.")
+        return cleaned
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            raise ValueError("Le numéro de téléphone ne peut pas être nul.")
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError("Le numéro de téléphone ne peut pas être vide.")
+        if not re.match(r"^(\+?[0-9\s.()-]{8,30})$", cleaned):
+            raise ValueError("Le numéro de téléphone contient des caractères invalides.")
+        digits_only = re.sub(r"\D", "", cleaned)
+        if len(digits_only) < 8 or len(digits_only) > 15:
+            raise ValueError("Le numéro de téléphone doit contenir entre 8 et 15 chiffres.")
+        return cleaned
+
+    @field_validator("first_name", "last_name")
+    @classmethod
+    def validate_names(cls, v: Optional[str], info) -> Optional[str]:
+        field_name = info.field_name
+        label = "Le prénom" if field_name == "first_name" else "Le nom"
+        if v is None:
+            raise ValueError(f"{label} ne peut pas être nul.")
+        cleaned = v.strip()
+        if not cleaned:
+            raise ValueError(f"{label} ne peut pas être vide.")
+        return cleaned
+
+    @field_validator("postal_code")
+    @classmethod
+    def validate_postal_code(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        if not re.match(r"^[0-9A-Za-z\s-]{2,10}$", cleaned):
+            raise ValueError("Le code postal est invalide.")
+        return cleaned
+
+    @field_validator("street_address", "city", "admin_notes")
+    @classmethod
+    def clean_optional_strings(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        return cleaned if cleaned else None
+
+
+class ResendAttestationResponse(BaseModel):
+    success: bool = True
+    message: str
+    email: str
+
+
+

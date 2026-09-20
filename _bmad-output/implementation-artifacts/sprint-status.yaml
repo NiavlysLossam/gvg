@@ -58,7 +58,7 @@ development_status:
 
   epic-8: in-progress
   8-1-decoupage-onglets-gestion-inscriptions: done
-  8-2-fiche-detaillee-inscription-modifiable-notes-internes: backlog
+  8-2-fiche-detaillee-inscription-modifiable-notes-internes: done
   8-3-verrouillage-strict-prix-stands-reserves: backlog
   8-4-integration-flux-cartographiques-wms-ign-saisie-libre: backlog
   epic-8-retrospective: optional

@@ -96,7 +96,17 @@ export async function fetchCurrentUser(): Promise<User> {
 
 export class ApiError extends Error {
   constructor(public status: number, public detail: string | Record<string, unknown>[]) {
-    super(typeof detail === 'string' ? detail : JSON.stringify(detail));
+    let message = 'Une erreur est survenue';
+    if (typeof detail === 'string') {
+      message = detail;
+    } else if (Array.isArray(detail)) {
+      message = detail
+        .map((item) => (typeof item === 'object' && item && 'msg' in item ? String((item as any).msg) : JSON.stringify(item)))
+        .join(', ');
+    } else {
+      message = JSON.stringify(detail);
+    }
+    super(message);
     this.name = 'ApiError';
   }
 }
@@ -701,6 +711,86 @@ export async function createManualBooking(
 
   if (!response.ok) {
     let detail = 'Erreur lors de la création de la réservation manuelle';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function updateAdminOrder(
+  eventIdOrSlug: string,
+  orderId: string,
+  payload: import('../types/order').AdminOrderUpdateInput
+): Promise<import('../types/order').AdminOrder> {
+  const response = await authFetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = "Erreur lors de la mise à jour de l'inscription";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function resendOrderAttestationEmail(
+  eventIdOrSlug: string,
+  orderId: string
+): Promise<import('../types/order').ResendAttestationResponse> {
+  const response = await authFetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/resend-attestation`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    }
+  );
+
+  if (!response.ok) {
+    let detail = "Erreur lors du renvoi de l'attestation par e-mail";
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function fetchOrderEmails(
+  eventIdOrSlug: string,
+  orderId: string
+): Promise<import('../types/order').OrderEmailLogListResponse> {
+  const response = await authFetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/orders/${encodeURIComponent(orderId)}/emails`
+  );
+
+  if (!response.ok) {
+    let detail = "Erreur lors de la récupération de l'historique des e-mails";
     try {
       const err = await response.json();
       detail = err.detail || detail;

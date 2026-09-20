@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+
+{% block title %}Votre attestation d'inscription - {{ event_title }}{% endblock %}
+
+{% block content %}
+  <div style="text-align: center; margin-bottom: 24px;">
+    <span class="badge badge-success">✓ Attestation Officielle</span>
+    <h2 style="margin: 12px 0 4px; font-size: 20px; font-weight: 800; color: #111827;">Votre attestation d'inscription</h2>
+    <p style="color: #6b7280; font-size: 14px; margin: 0;">
+      Bonjour <strong>{{ first_name }} {{ last_name }}</strong>, voici l'attestation officielle (sur l'honneur) pour votre participation à <strong>{{ event_title }}</strong>.
+    </p>
+  </div>
+
+  <div class="info-box">
+    <div class="info-row">
+      <span class="info-label">Numéro de dossier</span>
+      <span class="info-value">{{ order_number }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Stand(s) attribué(s)</span>
+      <span class="info-value">
+        {% for label in spot_labels %}
+          <span class="stand-pill">{{ label }}</span>
+        {% else %}
+          Non spécifié
+        {% endfor %}
+      </span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Métrage linéaire total</span>
+      <span class="info-value">{{ total_linear_meters | default("0.0") }} m</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Date de l'événement</span>
+      <span class="info-value">{{ event_date }}</span>
+    </div>
+    <div class="info-row">
+      <span class="info-label">Lieu</span>
+      <span class="info-value">{{ event_location }}</span>
+    </div>
+  </div>
+
+  <div style="background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 12px; padding: 16px 20px; margin: 20px 0;">
+    <h3 style="margin: 0 0 10px; font-size: 14px; font-weight: 800; color: #065f46;">📄 Attestation au format PDF</h3>
+    <p style="margin: 4px 0; font-size: 13px; color: #047857;">
+      Votre attestation légale officielle conforme à l'article L. 310-2 du Code de commerce est <strong>jointe à cet e-mail</strong> au format PDF.
+    </p>
+    <p style="margin: 8px 0 0; font-size: 12px; color: #065f46;">
+      ⚠️ <em>Vous devez présenter ce document (imprimé ou sur votre smartphone) accompagné de votre pièce d'identité lors de votre arrivée le jour de l'événement.</em>
+    </p>
+  </div>
+
+  <div style="text-align: center; margin-top: 28px;">
+    {% if attestation_url %}
+      <a href="{{ attestation_url }}" class="btn btn-primary" style="display: block; margin-bottom: 12px;">
+        Télécharger mon attestation PDF
+      </a>
+    {% endif %}
+    {% if confirmation_url %}
+      <div style="margin-top: 14px; font-size: 13px;">
+        <a href="{{ confirmation_url }}" style="color: #059669; font-weight: 600; text-decoration: underline;">
+          Consulter ma réservation en ligne
+        </a>
+      </div>
+    {% endif %}
+  </div>
+{% endblock %}

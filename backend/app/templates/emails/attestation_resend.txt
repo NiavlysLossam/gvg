@@ -1,0 +1,29 @@
+ATTESTATION D'INSCRIPTION - {{ event_title }}
+
+Bonjour {{ first_name }} {{ last_name }},
+
+Voici l'attestation officielle (sur l'honneur) pour votre participation au vide-grenier "{{ event_title }}".
+
+RÉCAPITULATIF DE VOTRE DOSSIER :
+----------------------------------------
+- Numéro de dossier : {{ order_number }}
+- Stand(s) attribué(s) : {{ spot_labels | join(", ") if spot_labels else "Non spécifié" }}
+- Métrage linéaire total : {{ total_linear_meters }} m
+- Date : {{ event_date }}
+- Lieu : {{ event_location }}
+
+VOTRE DOCUMENT PDF :
+----------------------------------------
+Votre attestation légale officielle conforme à l'article L. 310-2 du Code de commerce est jointe à cet e-mail au format PDF.
+
+Vous pouvez également la télécharger directement via ce lien :
+{{ attestation_url }}
+
+ACCÈS À VOTRE RÉSERVATION :
+{{ confirmation_url }}
+
+Rappel : Vous devez présenter ce document (imprimé ou sur votre smartphone) accompagné de votre pièce d'identité originale lors de votre accueil par les placiers.
+
+---
+GVG (Gestion de Vide-Greniers)
+Contact organisateur : {{ organizer_email }}

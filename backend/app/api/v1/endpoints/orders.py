@@ -22,6 +22,8 @@ from app.schemas.order import (
     OrderRejectCancellationAction,
     BulkEventCancelIn,
     BulkEventCancelResponse,
+    AdminOrderUpdate,
+    ResendAttestationResponse,
 )
 from app.schemas.email import EmailLogListResponse, EmailLogOut
 from app.services import stripe_service, email_service, pdf_service, excel_service
@@ -793,6 +795,117 @@ def list_order_emails(
     return EmailLogListResponse(
         items=[EmailLogOut.model_validate(log) for log in logs],
         total=len(logs),
+    )
+
+
+@router.patch(
+    "/{id_or_slug}/orders/{order_id}",
+    response_model=AdminOrderOut,
+    summary="Update order contact details or internal notes as organizer",
+)
+def update_admin_order(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    payload: AdminOrderUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AdminOrderOut:
+    """
+    Update exhibitor contact details (first_name, last_name, email, phone, address)
+    or organizer private internal notes (admin_notes).
+    Enforces RFC email validation, phone number constraints, and strict event ownership.
+    Financial amounts and reserved spots remain immutable from this endpoint.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
+    order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id, Order.event_id == event.id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    update_data = payload.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if hasattr(order, field):
+            setattr(order, field, value)
+
+    order.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    # Re-query with eager loading to ensure spot_labels and items are populated without N+1
+    order = (
+        db.query(Order)
+        .options(selectinload(Order.items).selectinload(BookingItem.spot))
+        .filter(Order.id == order_id)
+        .first()
+    )
+
+    return AdminOrderOut.model_validate(order)
+
+
+@router.post(
+    "/{id_or_slug}/orders/{order_id}/resend-attestation",
+    response_model=ResendAttestationResponse,
+    summary="Resend official sworn statement attestation PDF by email to exhibitor",
+)
+def resend_order_attestation(
+    id_or_slug: str,
+    order_id: uuid.UUID,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ResendAttestationResponse:
+    """
+    Resend official sworn statement (Attestation sur l'honneur) PDF by email.
+    Only orders with status 'confirmed' and a non-empty valid email are eligible.
+    Generates the attestation PDF in-memory and attaches it to the email.
+    Logs an audit record in the email_logs table.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
+    order = (
+        db.query(Order)
+        .filter(Order.id == order_id, Order.event_id == event.id)
+        .first()
+    )
+    if not order:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Commande introuvable pour cet événement.",
+        )
+
+    if order.status != "confirmed":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"L'attestation ne peut être expédiée que pour les commandes confirmées (statut actuel : {order.status}).",
+        )
+
+    if not order.honor_declaration_accepted:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="L'attestation sur l'honneur n'a pas été acceptée pour cette réservation.",
+        )
+
+    if not order.email or not order.email.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="L'exposant ne dispose pas d'une adresse e-mail valide pour recevoir l'attestation.",
+        )
+
+    background_tasks.add_task(
+        email_service.send_attestation_email,
+        order=order.id,
+        event=event.id,
+    )
+
+    return ResendAttestationResponse(
+        success=True,
+        message=f"L'envoi de l'attestation d'inscription à {order.email} a été initié avec succès.",
+        email=order.email,
     )
 
 
