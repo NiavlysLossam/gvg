@@ -82,4 +82,23 @@ export interface SpotBatchRenumberResponse extends SpotFeatureCollection {
   updated_count: number;
 }
 
+export interface SpotBatchUpdateItem {
+  id: string;
+  label?: string;
+  linear_meters?: number;
+  price_cents?: number;
+  price?: number;
+  geometry?: GeoJSONPolygon;
+  status?: 'available' | 'locked' | 'reserved' | 'blocked';
+}
+
+export interface SpotBatchUpdateInput {
+  spots: SpotBatchUpdateItem[];
+}
+
+export interface SpotBatchUpdateResponse extends SpotFeatureCollection {
+  updated_count: number;
+}
+
+
 

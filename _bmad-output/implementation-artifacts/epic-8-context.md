@@ -10,7 +10,7 @@ Optimiser le quotidien de l'organisateur avec une refonte modulaire de la "Gesti
 
 - Story 8.1: Découpage en Onglets de la Gestion des Inscriptions (done)
 - Story 8.2: Fiche Détaillée d'Inscription Modifiable & Notes Internes (done)
-- Story 8.3: Verrouillage Strict des Prix des Stands Réservés (backlog)
+- Story 8.3: Verrouillage Strict des Prix des Stands Réservés (done)
 - Story 8.4: Intégration des Flux Cartographiques WMS (IGN Géoplateforme & Saisie Libre) (backlog)
 
 ## Requirements & Constraints

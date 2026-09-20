@@ -1,6 +1,11 @@
+import uuid
 import pytest
 from datetime import datetime, timezone, timedelta
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+from app.models.order import Order, BookingItem
+from app.models.spot import Spot
+
 
 
 def create_sample_event(client: TestClient, title="Brocante du Port", price_per_meter=8.0, map_type="geographic"):
@@ -781,6 +786,453 @@ def test_batch_renumber_prefix_too_long_rejected(client: TestClient):
         json={"spot_ids": [spot_id], "prefix": long_prefix},
     )
     assert res_long.status_code == 422
+
+
+def create_order_for_spot(
+    db_session: Session,
+    event_id: str,
+    spot_id: str,
+    price_cents: int,
+    order_status: str = "confirmed",
+) -> Order:
+    order = Order(
+        event_id=uuid.UUID(event_id) if isinstance(event_id, str) else event_id,
+        first_name="Jean",
+        last_name="Valjean",
+        email="jean.valjean@example.com",
+        phone="0611223344",
+        street_address="1 rue Victor Hugo",
+        postal_code="75001",
+        city="Paris",
+        honor_declaration_accepted=True,
+        total_price_cents=price_cents,
+        status=order_status,
+        payment_method="stripe",
+    )
+    db_session.add(order)
+    db_session.flush()
+
+    b_item = BookingItem(
+        order_id=order.id,
+        spot_id=uuid.UUID(spot_id) if isinstance(spot_id, str) else spot_id,
+        price_cents=price_cents,
+    )
+    db_session.add(b_item)
+    db_session.commit()
+    db_session.refresh(order)
+    return order
+
+
+def test_reserved_spot_unit_price_modification_rejected(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "R-01",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = res.json()["id"]
+    assert res.json()["properties"]["price_cents"] == 2000
+
+    # Mark as reserved
+    client.patch(f"/api/v1/events/{event_id}/spots/{spot_id}", json={"status": "reserved"})
+
+    # Attempt to modify price_cents -> HTTP 400
+    patch_cents = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"price_cents": 3500},
+    )
+    assert patch_cents.status_code == 400
+    assert patch_cents.json()["detail"] == "Impossible de modifier le prix d'un stand déjà réservé ou associé à une commande active."
+
+    # Attempt to modify price in euros -> HTTP 400
+    patch_euros = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"price": 45.0},
+    )
+    assert patch_euros.status_code == 400
+    assert patch_euros.json()["detail"] == "Impossible de modifier le prix d'un stand déjà réservé ou associé à une commande active."
+
+
+def test_reserved_spot_unit_linear_meters_modification_rejected(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "R-02",
+            "linear_meters": 2.0,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = res.json()["id"]
+
+    # Mark as reserved
+    client.patch(f"/api/v1/events/{event_id}/spots/{spot_id}", json={"status": "reserved"})
+
+    # Attempt to modify linear_meters -> HTTP 400
+    patch_lm = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"linear_meters": 4.0},
+    )
+    assert patch_lm.status_code == 400
+    assert patch_lm.json()["detail"] == "Impossible de modifier les dimensions ou le prix d'un stand déjà réservé ou associé à une commande active."
+
+
+def test_active_order_spot_price_and_dimension_modification_rejected(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    active_statuses = ["confirmed", "pending", "pending_approval", "cancellation_requested"]
+
+    for idx, order_status in enumerate(active_statuses, start=1):
+        res = client.post(
+            f"/api/v1/events/{event_id}/spots",
+            json={
+                "label": f"Act-{idx}",
+                "linear_meters": 2.0,
+                "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+            },
+        )
+        spot_id = res.json()["id"]
+
+        # Keep spot status 'available' but attach an active order
+        create_order_for_spot(db_session, event_id, spot_id, price_cents=2000, order_status=order_status)
+
+        # Modifying price_cents is rejected with HTTP 400
+        patch_price = client.patch(
+            f"/api/v1/events/{event_id}/spots/{spot_id}",
+            json={"price_cents": 5000},
+        )
+        assert patch_price.status_code == 400
+        assert patch_price.json()["detail"] == "Impossible de modifier le prix d'un stand déjà réservé ou associé à une commande active."
+
+        # Modifying linear_meters is rejected with HTTP 400
+        patch_dim = client.patch(
+            f"/api/v1/events/{event_id}/spots/{spot_id}",
+            json={"linear_meters": 5.0},
+        )
+        assert patch_dim.status_code == 400
+        assert patch_dim.json()["detail"] == "Impossible de modifier les dimensions ou le prix d'un stand déjà réservé ou associé à une commande active."
+
+
+def test_reserved_spot_allows_idempotent_and_non_price_updates(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={
+            "label": "Old-Name",
+            "linear_meters": 2.0,
+            "price_cents": 2000,
+            "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS},
+        },
+    )
+    spot_id = res.json()["id"]
+
+    # Mark as reserved
+    client.patch(f"/api/v1/events/{event_id}/spots/{spot_id}", json={"status": "reserved"})
+
+    # 1. Update label without changing price/linear_meters -> HTTP 200
+    patch_label = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"label": "New-Name"},
+    )
+    assert patch_label.status_code == 200
+    assert patch_label.json()["properties"]["label"] == "New-Name"
+
+    # 2. Idempotent price update (same price_cents) -> HTTP 200
+    patch_same_price = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"price_cents": 2000},
+    )
+    assert patch_same_price.status_code == 200
+
+    # 3. Idempotent dimensions update (same linear_meters) -> HTTP 200
+    patch_same_dim = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"linear_meters": 2.0},
+    )
+    assert patch_same_dim.status_code == 200
+
+    # 4. Update geometry without changing price -> HTTP 200
+    NEW_COORDS = [
+        [
+            [-2.030, 48.660],
+            [-2.025, 48.660],
+            [-2.025, 48.665],
+            [-2.030, 48.665],
+            [-2.030, 48.660],
+        ]
+    ]
+    patch_geom = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"geometry": {"type": "Polygon", "coordinates": NEW_COORDS}},
+    )
+    assert patch_geom.status_code == 200
+    assert patch_geom.json()["geometry"]["coordinates"] == NEW_COORDS
+
+
+def test_batch_update_spots_success(client: TestClient):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res1 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "S1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s1_id = res1.json()["id"]
+
+    res2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "S2", "linear_meters": 3.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s2_id = res2.json()["id"]
+
+    batch_payload = {
+        "spots": [
+            {"id": s1_id, "label": "S1-Updated", "linear_meters": 2.5},
+            {"id": s2_id, "label": "S2-Updated", "price_cents": 5000},
+        ]
+    }
+
+    res_batch = client.patch(f"/api/v1/events/{event_id}/spots/batch", json=batch_payload)
+    assert res_batch.status_code == 200, res_batch.text
+    data = res_batch.json()
+    assert data["type"] == "FeatureCollection"
+    assert data["updated_count"] == 2
+    assert len(data["features"]) == 2
+
+    labels = {f["properties"]["label"] for f in data["features"]}
+    assert labels == {"S1-Updated", "S2-Updated"}
+
+    features_by_id = {f["id"]: f["properties"] for f in data["features"]}
+    assert features_by_id[s1_id]["label"] == "S1-Updated"
+    assert features_by_id[s1_id]["linear_meters"] == 2.5
+    assert features_by_id[s1_id]["price_cents"] == 2500  # 2.5 * 10.00 EUR (1000 cents/m)
+    assert features_by_id[s2_id]["label"] == "S2-Updated"
+    assert features_by_id[s2_id]["linear_meters"] == 3.0
+    assert features_by_id[s2_id]["price_cents"] == 5000  # explicit override
+
+
+def test_batch_update_spots_reserved_price_conflict_atomic_rollback(client: TestClient):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res1 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Spot-Avail-1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s1_id = res1.json()["id"]
+
+    res2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Spot-Reserved-2", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s2_id = res2.json()["id"]
+
+    # Mark s2 as reserved
+    client.patch(f"/api/v1/events/{event_id}/spots/{s2_id}", json={"status": "reserved"})
+
+    res3 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Spot-Avail-3", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s3_id = res3.json()["id"]
+
+    # Attempt batch update where Spot-Reserved-2 modifies price_cents
+    batch_payload = {
+        "spots": [
+            {"id": s1_id, "label": "Spot-Avail-1-Modified"},
+            {"id": s2_id, "price_cents": 9999},
+            {"id": s3_id, "label": "Spot-Avail-3-Modified"},
+        ]
+    }
+
+    res_batch = client.patch(f"/api/v1/events/{event_id}/spots/batch", json=batch_payload)
+    assert res_batch.status_code == 400
+    detail = res_batch.json()["detail"]
+    assert "Spot-Reserved-2" in detail
+    assert "réservé" in detail
+
+    # Verify atomic rollback: neither s1 nor s3 was updated
+    check_s1 = client.get(f"/api/v1/events/{event_id}/spots/{s1_id}").json()
+    assert check_s1["properties"]["label"] == "Spot-Avail-1"
+
+    check_s2 = client.get(f"/api/v1/events/{event_id}/spots/{s2_id}").json()
+    assert check_s2["properties"]["price_cents"] == 2000
+
+    check_s3 = client.get(f"/api/v1/events/{event_id}/spots/{s3_id}").json()
+    assert check_s3["properties"]["label"] == "Spot-Avail-3"
+
+
+def test_batch_update_spots_reserved_non_price_edits_allowed(client: TestClient):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res1 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Old-S1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s1_id = res1.json()["id"]
+
+    res2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Old-S2", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    s2_id = res2.json()["id"]
+
+    # Mark s2 as reserved
+    client.patch(f"/api/v1/events/{event_id}/spots/{s2_id}", json={"status": "reserved"})
+
+    # Batch update: rename s1 and s2 without altering s2's price
+    batch_payload = {
+        "spots": [
+            {"id": s1_id, "label": "New-S1", "price_cents": 3000},
+            {"id": s2_id, "label": "New-S2"},
+        ]
+    }
+
+    res_batch = client.patch(f"/api/v1/events/{event_id}/spots/batch", json=batch_payload)
+    assert res_batch.status_code == 200
+    features = res_batch.json()["features"]
+    labels = {f["properties"]["label"] for f in features}
+    assert labels == {"New-S1", "New-S2"}
+
+
+def test_spot_price_editable_after_order_refund_or_cancellation(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Refund-01", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    spot_id = res.json()["id"]
+
+    # Order confirmed and spot reserved
+    order = create_order_for_spot(db_session, event_id, spot_id, price_cents=2000, order_status="confirmed")
+    spot_obj = db_session.query(Spot).filter(Spot.id == uuid.UUID(spot_id)).first()
+    spot_obj.status = "reserved"
+    db_session.commit()
+
+    # Price modification is blocked while order is active
+    patch_blocked = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"price_cents": 3500},
+    )
+    assert patch_blocked.status_code == 400
+
+    # Simulate refund: order becomes 'refunded', spot returns to 'available'
+    order.status = "refunded"
+    spot_obj.status = "available"
+    db_session.commit()
+
+    # Price modification now succeeds
+    patch_success = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot_id}",
+        json={"price_cents": 3500, "linear_meters": 3.5},
+    )
+    assert patch_success.status_code == 200
+    data = patch_success.json()["properties"]
+    assert data["price_cents"] == 3500
+    assert data["linear_meters"] == 3.5
+    assert data["status"] == "available"
+
+    # Also check cancelled order scenario
+    res2 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Cancel-01", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    spot2_id = res2.json()["id"]
+    order2 = create_order_for_spot(db_session, event_id, spot2_id, price_cents=2000, order_status="confirmed")
+    spot2_obj = db_session.query(Spot).filter(Spot.id == uuid.UUID(spot2_id)).first()
+    spot2_obj.status = "reserved"
+    db_session.commit()
+
+    # Cancel order and free spot
+    order2.status = "cancelled"
+    spot2_obj.status = "available"
+    db_session.commit()
+
+    patch_success2 = client.patch(
+        f"/api/v1/events/{event_id}/spots/{spot2_id}",
+        json={"price_cents": 4000},
+    )
+    assert patch_success2.status_code == 200
+    assert patch_success2.json()["properties"]["price_cents"] == 4000
+
+
+def test_batch_update_spots_active_order_conflict_rejected(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Booked-01", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    spot_id = res.json()["id"]
+
+    # Active pending_approval order linked via BookingItem even if spot status is not 'reserved'
+    create_order_for_spot(db_session, event_id, spot_id, price_cents=2000, order_status="pending_approval")
+
+    batch_payload = {
+        "spots": [
+            {"id": spot_id, "price_cents": 3500},
+        ]
+    }
+    res_batch = client.patch(f"/api/v1/events/{event_id}/spots/batch", json=batch_payload)
+    assert res_batch.status_code == 400
+    assert "réservé ou associé à une commande active" in res_batch.json()["detail"]
+
+
+def test_batch_update_spots_reserved_linear_meters_rejected(client: TestClient):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Res-Meters", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    spot_id = res.json()["id"]
+
+    # Mark reserved
+    client.patch(f"/api/v1/events/{event_id}/spots/{spot_id}", json={"status": "reserved"})
+
+    batch_payload = {
+        "spots": [
+            {"id": spot_id, "linear_meters": 4.0},
+        ]
+    }
+    res_batch = client.patch(f"/api/v1/events/{event_id}/spots/batch", json=batch_payload)
+    assert res_batch.status_code == 400
+    assert "dimensions" in res_batch.json()["detail"]
+
+
+def test_delete_spot_active_order_rejected(client: TestClient, db_session: Session):
+    event = create_sample_event(client, price_per_meter=10.0)
+    event_id = event["id"]
+
+    res = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Del-Active", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    )
+    spot_id = res.json()["id"]
+
+    # Active order attached to spot while spot status is available
+    create_order_for_spot(db_session, event_id, spot_id, price_cents=2000, order_status="confirmed")
+
+    del_res = client.delete(f"/api/v1/events/{event_id}/spots/{spot_id}")
+    assert del_res.status_code == 400
+    assert "réservé ou associé à une commande active" in del_res.json()["detail"]
+
+
 
 
 

@@ -8,6 +8,8 @@ import {
   SpotBatchCreateResponse,
   SpotBatchRenumberInput,
   SpotBatchRenumberResponse,
+  SpotBatchUpdateInput,
+  SpotBatchUpdateResponse,
 } from '../types/spot';
 
 import {
@@ -401,6 +403,35 @@ export async function renumberSpotsBatch(
 
   if (!response.ok) {
     let detail = 'Erreur lors de la renumérotation des stands';
+    try {
+      const err = await response.json();
+      detail = err.detail || detail;
+    } catch {
+      // ignore
+    }
+    throw new ApiError(response.status, detail);
+  }
+
+  return response.json();
+}
+
+export async function batchUpdateSpots(
+  eventIdOrSlug: string,
+  data: SpotBatchUpdateInput
+): Promise<SpotBatchUpdateResponse> {
+  const response = await authFetch(
+    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/batch`,
+    {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(data),
+    }
+  );
+
+  if (!response.ok) {
+    let detail = 'Erreur lors de la mise à jour groupée des stands';
     try {
       const err = await response.json();
       detail = err.detail || detail;

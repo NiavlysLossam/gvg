@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Tag, Ruler, Euro, Trash2, Check, AlertCircle, Sparkles, Copy, PlusCircle } from 'lucide-react';
+import { X, Tag, Ruler, Euro, Trash2, Check, AlertCircle, Sparkles, Copy, PlusCircle, Lock } from 'lucide-react';
 import { SpotFeature } from '../types/spot';
 
 export interface SpotFormData {
@@ -45,6 +45,8 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
 
+  const isReserved = !isNew && (spot?.properties.status === 'reserved' || spot?.properties.status === 'locked');
+
   // Sync state when spot or open state changes
   useEffect(() => {
     if (isOpen) {
@@ -87,27 +89,37 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
       return;
     }
 
-    if (isNaN(linearMeters) || linearMeters <= 0) {
-      setError('Le métrage doit être supérieur à 0');
-      return;
-    }
-
+    let finalLinearMeters = linearMeters;
     let finalPriceCents = calculatedAutoPriceCents;
-    if (isPriceOverridden) {
-      const parsedManual = parseFloat(manualPriceEuros);
-      if (isNaN(parsedManual) || parsedManual < 0) {
-        setError('Le tarif personnalisé doit être un montant positif ou nul.');
+
+    if (isReserved && spot) {
+      // Secure submission: strictly retain original linear_meters and price_cents from spot properties
+      finalLinearMeters = spot.properties.linear_meters;
+      finalPriceCents = spot.properties.price_cents;
+    } else {
+      if (isNaN(linearMeters) || linearMeters <= 0) {
+        setError('Le métrage doit être supérieur à 0');
         return;
       }
-      finalPriceCents = Math.round(parsedManual * 100);
+
+      if (isPriceOverridden) {
+        const parsedManual = parseFloat(manualPriceEuros);
+        if (isNaN(parsedManual) || parsedManual < 0) {
+          setError('Le tarif personnalisé doit être un montant positif ou nul.');
+          return;
+        }
+        finalPriceCents = Math.round(parsedManual * 100);
+      }
     }
 
     try {
       await onSave({
         label: trimmedLabel,
-        linear_meters: linearMeters,
+        linear_meters: finalLinearMeters,
         price_cents: finalPriceCents,
-        isPriceOverridden,
+        isPriceOverridden: isReserved
+          ? (spot?.properties.price_cents !== Math.round(spot!.properties.linear_meters * eventPricePerMeterCents))
+          : isPriceOverridden,
       });
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement");
@@ -207,6 +219,14 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
                 </button>
               </div>
             )}
+
+            {/* Lock alert badge for reserved spot */}
+            {isReserved && (
+              <div className="bg-amber-50 border border-amber-200 text-amber-800 px-3.5 py-2.5 rounded-lg flex items-center gap-2 text-xs font-semibold">
+                <Lock className="w-4 h-4 text-amber-600 flex-shrink-0" />
+                <span>Prix verrouillé (stand déjà réservé)</span>
+              </div>
+            )}
           </div>
         )}
 
@@ -234,6 +254,12 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
           <label className="block text-sm font-semibold text-gray-800 mb-1.5 flex items-center gap-1.5">
             <Ruler className="w-4 h-4 text-gray-500" />
             <span>Métrage linéaire (mètres)</span>
+            {isReserved && (
+              <span className="text-[11px] font-normal text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 inline-flex items-center gap-1 ml-auto">
+                <Lock className="w-3 h-3 text-amber-600" />
+                Verrouillé
+              </span>
+            )}
           </label>
           <div className="relative">
             <input
@@ -241,58 +267,75 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
               step="0.5"
               min="0.1"
               required
+              disabled={isReserved}
               value={linearMeters}
               onChange={(e) => {
+                if (isReserved) return;
                 const val = parseFloat(e.target.value);
                 setLinearMeters(isNaN(val) ? 0 : val);
               }}
-              className="w-full px-3.5 py-2.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition pr-12"
+              className={`w-full px-3.5 py-2.5 border rounded-lg text-sm transition pr-12 ${
+                isReserved
+                  ? 'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed'
+                  : 'bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none'
+              }`}
             />
             <span className="absolute inset-y-0 right-0 flex items-center pr-3.5 text-sm font-medium text-gray-400 pointer-events-none">
               m
             </span>
           </div>
-          {linearMeters <= 0 && (
+          {!isReserved && linearMeters <= 0 && (
             <p className="text-xs text-red-600 mt-1 font-medium">Le métrage doit être supérieur à 0</p>
           )}
           <p className="text-xs text-gray-400 mt-1">
-            Définit la longueur allouée à l'exposant (ex : 2m, 3m, 4m).
+            {isReserved
+              ? 'Le métrage ne peut pas être modifié sur un stand réservé.'
+              : 'Définit la longueur allouée à l\'exposant (ex : 2m, 3m, 4m).'}
           </p>
         </div>
 
         {/* Price calculation block */}
-        <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-4 space-y-3">
+        <div className={`border rounded-xl p-4 space-y-3 ${isReserved ? 'bg-gray-50 border-gray-200' : 'bg-emerald-50/70 border-emerald-200'}`}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5 text-xs text-emerald-800 font-semibold">
-              <Euro className="w-4 h-4 text-emerald-600" />
-              <span>Tarif calculé</span>
+            <div className={`flex items-center gap-1.5 text-xs font-semibold ${isReserved ? 'text-gray-700' : 'text-emerald-800'}`}>
+              <Euro className={`w-4 h-4 ${isReserved ? 'text-gray-500' : 'text-emerald-600'}`} />
+              <span>{isReserved ? 'Tarif actuel (réservé)' : 'Tarif calculé'}</span>
             </div>
-            <div className="text-xs text-gray-500 font-medium">
-              Base : {(eventPricePerMeterCents / 100).toFixed(2)} €/m
-            </div>
+            {isReserved ? (
+              <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 flex items-center gap-1">
+                <Lock className="w-3 h-3 text-amber-600" />
+                Prix verrouillé
+              </span>
+            ) : (
+              <div className="text-xs text-gray-500 font-medium">
+                Base : {(eventPricePerMeterCents / 100).toFixed(2)} €/m
+              </div>
+            )}
           </div>
 
           <div className="flex items-baseline justify-between pt-1">
             <span className="text-sm font-medium text-gray-700">Prix total stand :</span>
-            <span className="text-2xl font-black text-emerald-700">
+            <span className={`text-2xl font-black ${isReserved ? 'text-gray-900' : 'text-emerald-700'}`}>
               {currentPriceEuros.toFixed(2)} €
             </span>
           </div>
 
           {/* Manual override toggle */}
-          <div className="pt-2 border-t border-emerald-200/60">
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-medium text-gray-700 select-none">
+          <div className={`pt-2 border-t ${isReserved ? 'border-gray-200' : 'border-emerald-200/60'}`}>
+            <label className={`flex items-center gap-2 text-xs font-medium select-none ${isReserved ? 'text-gray-400 cursor-not-allowed' : 'cursor-pointer text-gray-700'}`}>
               <input
                 type="checkbox"
+                disabled={isReserved}
                 checked={isPriceOverridden}
                 onChange={(e) => {
+                  if (isReserved) return;
                   const checked = e.target.checked;
                   setIsPriceOverridden(checked);
                   if (checked && !manualPriceEuros) {
                     setManualPriceEuros((calculatedAutoPriceCents / 100).toFixed(2));
                   }
                 }}
-                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300"
+                className="w-4 h-4 rounded text-emerald-600 focus:ring-emerald-500 border-gray-300 disabled:opacity-50 disabled:cursor-not-allowed"
               />
               <span className="flex items-center gap-1">
                 <Sparkles className="w-3.5 h-3.5 text-amber-500" />
@@ -310,10 +353,17 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
                     type="number"
                     step="1"
                     min="0"
+                    disabled={isReserved}
                     value={manualPriceEuros}
-                    onChange={(e) => setManualPriceEuros(e.target.value)}
+                    onChange={(e) => {
+                      if (!isReserved) setManualPriceEuros(e.target.value);
+                    }}
                     placeholder="Ex : 25.00"
-                    className="w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm text-gray-900 focus:ring-2 focus:ring-emerald-500 outline-none pr-8"
+                    className={`w-full px-3 py-1.5 border rounded-lg text-sm outline-none pr-8 ${
+                      isReserved
+                        ? 'bg-gray-100 border-gray-200 text-gray-500 cursor-not-allowed'
+                        : 'bg-white border-gray-300 text-gray-900 focus:ring-2 focus:ring-emerald-500'
+                    }`}
                   />
                   <span className="absolute inset-y-0 right-0 flex items-center pr-3 text-xs font-medium text-gray-400 pointer-events-none">
                     €
@@ -341,7 +391,11 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
         {/* Delete confirmation or action button */}
         {!isNew && spot && onDelete && (
           <div className="pt-4 border-t border-gray-200">
-            {showDeleteConfirm ? (
+            {isReserved ? (
+              <p className="text-xs text-gray-400 text-center italic py-2">
+                Un stand réservé ne peut pas être supprimé.
+              </p>
+            ) : showDeleteConfirm ? (
               <div className="bg-red-50 border border-red-200 rounded-xl p-3.5 space-y-2">
                 <p className="text-xs font-semibold text-red-800">
                   Confirmer la suppression de « {spot.properties.label} » ?
@@ -390,7 +444,7 @@ export const SpotPropertyDrawer: React.FC<SpotPropertyDrawerProps> = ({
         <button
           type="button"
           onClick={handleSubmit}
-          disabled={isSaving || linearMeters <= 0}
+          disabled={isSaving || (!isReserved && linearMeters <= 0)}
           className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm rounded-lg shadow-sm transition disabled:opacity-50"
         >
           <Check className="w-4 h-4" />

@@ -125,6 +125,77 @@ class SpotUpdate(BaseModel):
         return self
 
 
+class SpotBatchUpdateItem(BaseModel):
+    id: uuid.UUID = Field(..., description="Identifiant unique du stand")
+    label: Optional[str] = Field(None, min_length=1, max_length=100)
+    linear_meters: Optional[float] = Field(None, gt=0, description="Métrage linéaire (> 0)")
+    price_cents: Optional[int] = Field(None, ge=0)
+    price: Optional[float] = Field(None, ge=0)
+    geometry: Optional[GeoJSONPolygon] = None
+    status: Optional[Literal["available", "locked", "reserved", "blocked"]] = None
+
+    @field_validator("label")
+    @classmethod
+    def validate_label_not_whitespace(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None:
+            stripped = v.strip()
+            if not stripped:
+                raise ValueError("Le libellé ne peut pas être vide")
+            return stripped
+        return v
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_from_feature(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            data_copy = dict(data)
+            if "spot_id" in data_copy and "id" not in data_copy:
+                data_copy["id"] = data_copy["spot_id"]
+            props = data_copy.get("properties")
+            if isinstance(props, dict):
+                merged = {**props, **data_copy}
+                if "spot_id" in merged and "id" not in merged:
+                    merged["id"] = merged["spot_id"]
+                if "geometry" in data_copy:
+                    merged["geometry"] = data_copy["geometry"]
+                return merged
+            return data_copy
+        return data
+
+    @model_validator(mode="after")
+    def validate_update_fields(self) -> "SpotBatchUpdateItem":
+        if self.price is not None:
+            expected_cents = int(round(self.price * 100))
+            if self.price_cents is None or self.price_cents != expected_cents:
+                self.price_cents = expected_cents
+        return self
+
+
+class SpotBatchUpdate(BaseModel):
+    spots: List[SpotBatchUpdateItem] = Field(
+        ..., min_length=1, max_length=500, description="Liste des stands à mettre à jour"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def extract_from_features(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "spots" in data:
+                return data
+            if "features" in data:
+                return {"spots": data["features"]}
+        elif isinstance(data, list):
+            return {"spots": data}
+        return data
+
+
+class SpotBatchUpdateResponse(BaseModel):
+    type: Literal["FeatureCollection"] = "FeatureCollection"
+    features: List[SpotFeature] = []
+    updated_count: int = 0
+
+
+
 class SpotBatchCreate(BaseModel):
     spots: List[SpotCreate] = Field(
         ..., min_length=1, max_length=500, description="Liste des stands à créer"
