@@ -1,6 +1,10 @@
-# BMAD (local only) - Commented out for config repo tracking
-# .bmad-core/
-.bmad-*/
+# AI Assistant & Tool configs
+.agent/
+.claude/
+.cursor/
+.gemini/
+_bmad/
+**/.memlog.md
 
 # Virtual environment and local tools
 .venv/
@@ -33,4 +37,5 @@ uploads/
 # Databases
 *.db
 *.sqlite*
+
 
