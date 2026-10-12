@@ -743,10 +743,14 @@ def bulk_update_spots_pricing(
 ) -> BulkSpotPriceUpdateResponse:
     """
     Update the price of all spots in the event to a fixed price (in euros),
-    strictly skipping spots that are already reserved or linked to an active order.
+    strictly skipping spots that are already reserved, actively locked in a cart,
+    or linked to an active order.
     """
+    from datetime import datetime, timezone
+
     event = get_event_by_id_or_slug(db, id_or_slug, current_user)
     new_price_cents = int(round(payload.fixed_price * 100))
+    now_utc = datetime.now(timezone.utc)
 
     active_spot_ids = set(
         row[0]
@@ -766,13 +770,27 @@ def bulk_update_spots_pricing(
     locked_skipped_count = 0
 
     for spot in spots:
-        if spot.status == "reserved" or spot.id in active_spot_ids:
+        is_actively_locked = False
+        if spot.status == "locked" and spot.locked_until is not None:
+            lu = spot.locked_until if spot.locked_until.tzinfo else spot.locked_until.replace(tzinfo=timezone.utc)
+            if lu > now_utc:
+                is_actively_locked = True
+
+        if spot.status == "reserved" or is_actively_locked or spot.id in active_spot_ids:
             locked_skipped_count += 1
         else:
             spot.price_cents = new_price_cents
             updated_count += 1
 
-    db.commit()
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Erreur lors de la mise à jour groupée des tarifs.",
+        ) from exc
+
     return BulkSpotPriceUpdateResponse(
         updated_count=updated_count,
         locked_skipped_count=locked_skipped_count,

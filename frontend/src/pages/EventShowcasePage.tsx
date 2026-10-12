@@ -33,15 +33,20 @@ interface EventShowcasePageProps {
   onNavigateHome?: () => void;
 }
 
+const VALID_SERVICE_KEYS = ['buvette', 'restauration', 'sanitaires', 'parking', 'pmr'];
+
 function maskEmail(email: string): string {
-  const parts = email.split('@');
-  if (parts.length !== 2) return '••••••';
+  const parts = email.trim().split('@');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return '••••••';
   const [user, domain] = parts;
-  const maskedUser = user.length <= 2 ? `${user[0] || '*'}***` : `${user.slice(0, 2)}***`;
-  const domainParts = domain.split('.');
-  const tld = domainParts.length > 1 ? `.${domainParts[domainParts.length - 1]}` : '';
-  const domMain = domainParts[0] || '';
-  const maskedDom = domMain.length <= 2 ? `${domMain[0] || '*'}***` : `${domMain.slice(0, 2)}***`;
+  const maskedUser = user.length <= 2 ? `${user[0]}***` : `${user.slice(0, 2)}***`;
+  const lastDot = domain.lastIndexOf('.');
+  if (lastDot <= 0 || lastDot === domain.length - 1) {
+    return `${maskedUser}@•••`;
+  }
+  const domMain = domain.slice(0, lastDot);
+  const tld = domain.slice(lastDot);
+  const maskedDom = domMain.length <= 2 ? `${domMain[0]}***` : `${domMain.slice(0, 2)}***`;
   return `${maskedUser}@${maskedDom}${tld}`;
 }
 
@@ -493,7 +498,7 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
         </section>
 
         {/* COMMODITÉS ET SERVICES */}
-        {event.services && event.services.length > 0 && (
+        {(event.services || []).some((s) => VALID_SERVICE_KEYS.includes(s)) && (
           <section className="bg-white rounded-3xl border border-gray-200 p-6 sm:p-8 shadow-xs space-y-6">
             <div className="flex items-center gap-2">
               <Coffee className="w-5 h-5 text-emerald-600" />
@@ -501,7 +506,7 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-              {event.services.includes('buvette') && (
+              {event.services?.includes('buvette') && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
                   <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
                     <Coffee className="w-6 h-6" />
@@ -511,7 +516,7 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
                 </div>
               )}
 
-              {event.services.includes('restauration') && (
+              {event.services?.includes('restauration') && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
                   <div className="w-12 h-12 rounded-xl bg-red-100 text-red-700 flex items-center justify-center">
                     <Utensils className="w-6 h-6" />
@@ -521,7 +526,7 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
                 </div>
               )}
 
-              {event.services.includes('sanitaires') && (
+              {event.services?.includes('sanitaires') && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
                   <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
                     <CheckCircle2 className="w-6 h-6" />
@@ -531,7 +536,7 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
                 </div>
               )}
 
-              {event.services.includes('parking') && (
+              {event.services?.includes('parking') && (
                 <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
                   <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
                     <Car className="w-6 h-6" />
@@ -541,8 +546,8 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
                 </div>
               )}
 
-              {event.services.includes('pmr') && (
-                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2 col-span-2 sm:col-span-1">
+              {event.services?.includes('pmr') && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
                   <div className="w-12 h-12 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
                     <Accessibility className="w-6 h-6" />
                   </div>

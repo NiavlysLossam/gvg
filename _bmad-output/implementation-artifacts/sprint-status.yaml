@@ -61,6 +61,7 @@ development_status:
   8-2-fiche-detaillee-inscription-modifiable-notes-internes: done
   8-3-verrouillage-strict-prix-stands-reserves: done
   8-4-integration-flux-cartographiques-wms-ign-saisie-libre: done
+  8-5-parametres-avances-evenement-email-anti-spam-services-tarif-fixe: done
   epic-8-retrospective: optional
 
 action_items:

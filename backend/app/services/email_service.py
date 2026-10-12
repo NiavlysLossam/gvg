@@ -112,14 +112,20 @@ def send_raw_email(
             part_text = MIMEText(text_content, "plain", "utf-8")
             part_html = MIMEText(html_content, "html", "utf-8")
 
+            clean_reply_to = (
+                reply_to.replace("\r", "").replace("\n", "").strip()
+                if reply_to
+                else ""
+            )
+
             if attachments:
                 # Multipart mixed container holding alternative body + application attachments
                 msg = MIMEMultipart("mixed")
                 msg["Subject"] = Header(subject_safe, "utf-8")
                 msg["From"] = from_addr
                 msg["To"] = recipient
-                if reply_to and "@" in reply_to:
-                    msg["Reply-To"] = reply_to.strip()
+                if clean_reply_to and "@" in clean_reply_to:
+                    msg["Reply-To"] = clean_reply_to
 
                 alt_part = MIMEMultipart("alternative")
                 alt_part.attach(part_text)
@@ -139,8 +145,8 @@ def send_raw_email(
                 msg["Subject"] = Header(subject_safe, "utf-8")
                 msg["From"] = from_addr
                 msg["To"] = recipient
-                if reply_to and "@" in reply_to:
-                    msg["Reply-To"] = reply_to.strip()
+                if clean_reply_to and "@" in clean_reply_to:
+                    msg["Reply-To"] = clean_reply_to
                 msg.attach(part_text)
                 msg.attach(part_html)
 

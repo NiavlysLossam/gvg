@@ -23,8 +23,12 @@ def upgrade() -> None:
         batch_op.add_column(
             sa.Column('services', sa.JSON(), nullable=True)
         )
+    op.execute(
+        "UPDATE events SET services = '[\"buvette\", \"restauration\", \"sanitaires\", \"parking\", \"pmr\"]' WHERE services IS NULL"
+    )
 
 
 def downgrade() -> None:
     with op.batch_alter_table('events') as batch_op:
         batch_op.drop_column('services')
+

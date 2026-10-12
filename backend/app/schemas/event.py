@@ -1,7 +1,9 @@
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, List, Literal
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from typing import Optional, List, Literal, Any
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+ServiceType = Literal["buvette", "restauration", "sanitaires", "parking", "pmr"]
 
 
 def _to_utc(dt: Optional[datetime]) -> Optional[datetime]:
@@ -34,11 +36,20 @@ class EventBase(BaseModel):
     
     location_address: Optional[str] = Field(None, max_length=500, description="Adresse physique de l'événement")
     organizer_email: Optional[str] = Field(None, max_length=255, description="Email de contact de l'organisateur")
-    services: Optional[List[str]] = Field(default_factory=list, description="Liste des services présents (buvette, restauration, sanitaires, parking, pmr)")
+    services: List[ServiceType] = Field(default_factory=list, description="Liste des services présents (buvette, restauration, sanitaires, parking, pmr)")
     
     manual_approval_required: bool = Field(False, description="Modération manuelle requise pour les réservations")
     rules_text: Optional[str] = Field(None, max_length=10000, description="Règlement intérieur de l'événement")
     status: Literal["draft", "published", "archived"] = Field("draft", description="Statut de l'événement: draft, published, archived")
+
+    @field_validator("services", mode="before")
+    @classmethod
+    def normalize_services(cls, v: Any) -> Any:
+        if v is None:
+            return []
+        if isinstance(v, list):
+            return list(dict.fromkeys(v))
+        return v
 
 
 class EventCreate(EventBase):
@@ -89,13 +100,20 @@ class EventUpdate(BaseModel):
     
     location_address: Optional[str] = Field(None, max_length=500)
     organizer_email: Optional[str] = Field(None, max_length=255)
-    services: Optional[List[str]] = None
+    services: Optional[List[ServiceType]] = None
     manual_approval_required: Optional[bool] = None
     rules_text: Optional[str] = Field(None, max_length=10000)
     status: Optional[Literal["draft", "published", "archived"]] = None
     
     price_per_meter: Optional[float] = None
     price_per_meter_cents: Optional[int] = None
+
+    @field_validator("services", mode="after")
+    @classmethod
+    def deduplicate_services(cls, v: Optional[List[ServiceType]]) -> Optional[List[ServiceType]]:
+        if v is not None:
+            return list(dict.fromkeys(v))
+        return v
 
     @model_validator(mode="after")
     def validate_update(self) -> "EventUpdate":

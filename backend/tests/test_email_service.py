@@ -848,8 +848,8 @@ def test_render_order_confirmation_pending_approval_template():
     assert "En attente de validation" in txt or "validation" in txt.lower()
 
 
-def test_send_raw_email_includes_reply_to_header(db_session: Session, monkeypatch: pytest.MonkeyPatch):
-    """Verify send_raw_email includes Reply-To header when reply_to is provided."""
+def test_send_raw_email_includes_reply_to_header(client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch):
+    """Verify send_raw_email includes sanitized Reply-To header on both standard and attachment MIME branches and via domain dispatchers."""
     import email as email_module
     import smtplib
 
@@ -874,21 +874,66 @@ def test_send_raw_email_includes_reply_to_header(db_session: Session, monkeypatc
 
     monkeypatch.setattr(smtplib, "SMTP", MockSMTP)
 
+    # 1. Standard alternative branch + CR/LF sanitization
     log = email_service.send_raw_email(
         recipient="exposant@example.com",
         subject="Test Reply-To",
         html_content="<p>Bonjour</p>",
         text_content="Bonjour",
         email_type="confirmation",
-        reply_to="contact-evenement@asso.fr",
+        reply_to="contact-evenement@asso.fr\r\n",
         db=db_session,
     )
-
     assert log is not None
     assert log.status == "sent"
     assert len(sent_payloads) == 1
     _, _, raw_msg = sent_payloads[0]
     parsed = email_module.message_from_string(raw_msg)
     assert parsed["Reply-To"] == "contact-evenement@asso.fr"
+
+    # 2. Multipart/mixed attachment branch
+    log_att = email_service.send_raw_email(
+        recipient="exposant@example.com",
+        subject="Test Reply-To Attachment",
+        html_content="<p>Attestation</p>",
+        text_content="Attestation",
+        email_type="attestation",
+        reply_to="orga-pdf@asso.fr",
+        attachments=[("attestation.pdf", b"%PDF-1.4 test", "application/pdf")],
+        db=db_session,
+    )
+    assert log_att is not None
+    assert log_att.status == "sent"
+    assert len(sent_payloads) == 2
+    _, _, raw_msg_att = sent_payloads[1]
+    parsed_att = email_module.message_from_string(raw_msg_att)
+    assert parsed_att["Reply-To"] == "orga-pdf@asso.fr"
+
+    # 3. Domain dispatcher (send_order_confirmation_email) forwards event.organizer_email as reply_to
+    ev = create_test_event(client, "Vide-Grenier Reply-To Dispatcher")
+    order_disp = Order(
+        event_id=uuid.UUID(ev["id"]),
+        order_number=generate_order_number(),
+        first_name="Claire",
+        last_name="Reply",
+        email="claire.reply@example.com",
+        phone="0611223344",
+        honor_declaration_accepted=True,
+        total_price_cents=1200,
+        status="confirmed",
+        payment_method="check",
+        access_token=generate_access_token(),
+    )
+    db_session.add(order_disp)
+    db_session.commit()
+    db_session.refresh(order_disp)
+
+    log_disp = email_service.send_order_confirmation_email(order_disp, order_disp.event, db=db_session)
+    assert log_disp is not None
+    assert log_disp.status == "sent"
+    _, _, raw_msg_disp = sent_payloads[-1]
+    parsed_disp = email_module.message_from_string(raw_msg_disp)
+    assert parsed_disp["Reply-To"] == "orga@rennes-videgrenier.fr"
+
 
 

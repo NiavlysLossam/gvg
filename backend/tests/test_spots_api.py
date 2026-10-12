@@ -1238,11 +1238,12 @@ def test_bulk_update_spots_pricing_skips_reserved_and_active_orders(client: Test
     event = create_sample_event(client, price_per_meter=5.0)
     event_id = event["id"]
 
-    # Create 4 spots:
+    # Create 5 spots:
     # S1: available (2m -> 10.00€)
     # S2: available (4m -> 20.00€)
     # S3: status == 'reserved' (3m -> 15.00€)
     # S4: status == 'available' but linked to active pending_approval order (2m -> 10.00€)
+    # S5: status == 'locked' with future locked_until (2m -> 10.00€)
     s1 = client.post(
         f"/api/v1/events/{event_id}/spots",
         json={"label": "Bulk-1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
@@ -1259,11 +1260,27 @@ def test_bulk_update_spots_pricing_skips_reserved_and_active_orders(client: Test
         f"/api/v1/events/{event_id}/spots",
         json={"label": "Bulk-4-Order", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
+    s5 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Bulk-5-Locked", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    ).json()["id"]
 
     # Mark S3 as reserved
     client.patch(f"/api/v1/events/{event_id}/spots/{s3}", json={"status": "reserved"})
     # Link S4 to active order
     create_order_for_spot(db_session, event_id, s4, price_cents=1000, order_status="pending_approval")
+    # Mark S5 as actively locked in cart
+    spot5_obj = db_session.query(Spot).filter(Spot.id == uuid.UUID(s5)).first()
+    spot5_obj.status = "locked"
+    spot5_obj.locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+    db_session.commit()
+
+    # Sub-cent fixed_price is rejected with 422
+    invalid_res = client.post(
+        f"/api/v1/events/{event_id}/spots/bulk-update-pricing",
+        json={"fixed_price": 0.001},
+    )
+    assert invalid_res.status_code == 422
 
     # Apply bulk fixed price of 18.50 €
     bulk_res = client.post(
@@ -1273,15 +1290,17 @@ def test_bulk_update_spots_pricing_skips_reserved_and_active_orders(client: Test
     assert bulk_res.status_code == 200
     data = bulk_res.json()
     assert data["updated_count"] == 2
-    assert data["locked_skipped_count"] == 2
+    assert data["locked_skipped_count"] == 3
 
     # Verify individual spot prices
     spots_list = client.get(f"/api/v1/events/{event_id}/spots").json()["features"]
     prices_by_id = {f["id"]: f["properties"]["price_cents"] for f in spots_list}
     assert prices_by_id[s1] == 1850
     assert prices_by_id[s2] == 1850
-    assert prices_by_id[s3] == 1500  # untouched
-    assert prices_by_id[s4] == 1000  # untouched
+    assert prices_by_id[s3] == 1500  # untouched (reserved)
+    assert prices_by_id[s4] == 1000  # untouched (active order)
+    assert prices_by_id[s5] == 1000  # untouched (actively locked)
+
 
 
 

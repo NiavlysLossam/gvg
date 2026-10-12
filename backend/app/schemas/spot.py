@@ -453,7 +453,13 @@ def spots_to_feature_collection(spots_with_geojson: list) -> SpotFeatureCollecti
 
 
 class BulkSpotPriceUpdateRequest(BaseModel):
-    fixed_price: float = Field(..., gt=0, description="Nouveau prix fixe en euros à appliquer à tous les stands disponibles")
+    fixed_price: float = Field(
+        ...,
+        ge=0.01,
+        le=100000.0,
+        allow_inf_nan=False,
+        description="Nouveau prix fixe en euros à appliquer à tous les stands disponibles",
+    )
 
 
 class BulkSpotPriceUpdateResponse(BaseModel):

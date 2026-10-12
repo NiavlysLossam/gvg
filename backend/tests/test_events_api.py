@@ -1209,7 +1209,7 @@ def test_duplicate_event_preserves_wms_layers(client: TestClient):
 
 
 def test_event_services_crud_and_duplication(client: TestClient):
-    """Test creating, updating, duplicating, and public viewing of event services."""
+    """Test creating, updating, duplicating, validation, and public viewing of event services."""
     now = datetime.now(timezone.utc)
     create_res = client.post(
         "/api/v1/events",
@@ -1218,7 +1218,7 @@ def test_event_services_crud_and_duplication(client: TestClient):
             "start_date": (now + timedelta(days=10)).isoformat(),
             "end_date": (now + timedelta(days=10, hours=8)).isoformat(),
             "price_per_meter": 4.0,
-            "services": ["buvette", "parking", "pmr"],
+            "services": ["buvette", "parking", "pmr", "buvette"],
             "status": "published",
         },
     )
@@ -1228,15 +1228,28 @@ def test_event_services_crud_and_duplication(client: TestClient):
     slug = event_data["slug"]
     assert event_data["services"] == ["buvette", "parking", "pmr"]
 
-    # Check public endpoint returns services
+    # Check public detail endpoint returns services
     pub_res = client.get(f"/api/v1/public/events/{slug}")
     assert pub_res.status_code == 200
     assert pub_res.json()["services"] == ["buvette", "parking", "pmr"]
 
+    # Check public list endpoint returns services
+    pub_list_res = client.get("/api/v1/public/events")
+    assert pub_list_res.status_code == 200
+    matching_item = next(item for item in pub_list_res.json() if item["id"] == event_id)
+    assert matching_item["services"] == ["buvette", "parking", "pmr"]
+
+    # Reject invalid service key
+    invalid_res = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"services": ["buvette", "invalid_service"]},
+    )
+    assert invalid_res.status_code == 422
+
     # Update services
     patch_res = client.patch(
         f"/api/v1/events/{event_id}",
-        json={"services": ["restauration", "sanitaires"]},
+        json={"services": ["restauration", "sanitaires", "restauration"]},
     )
     assert patch_res.status_code == 200
     assert patch_res.json()["services"] == ["restauration", "sanitaires"]
@@ -1248,6 +1261,7 @@ def test_event_services_crud_and_duplication(client: TestClient):
     )
     assert dup_res.status_code == 201
     assert dup_res.json()["services"] == ["restauration", "sanitaires"]
+
 
 
 
