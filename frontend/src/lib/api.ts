@@ -444,40 +444,6 @@ export async function batchUpdateSpots(
   return response.json();
 }
 
-export interface BulkSpotPriceUpdateResponse {
-  updated_count: number;
-  locked_skipped_count: number;
-}
-
-export async function bulkUpdateSpotsPricing(
-  eventIdOrSlug: string,
-  fixedPrice: number
-): Promise<BulkSpotPriceUpdateResponse> {
-  const response = await authFetch(
-    `${API_BASE}/events/${encodeURIComponent(eventIdOrSlug)}/spots/bulk-update-pricing`,
-    {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ fixed_price: fixedPrice }),
-    }
-  );
-
-  if (!response.ok) {
-    let detail = 'Erreur lors de la mise à jour du tarif des stands';
-    try {
-      const err = await response.json();
-      detail = err.detail || detail;
-    } catch {
-      // ignore
-    }
-    throw new ApiError(response.status, detail);
-  }
-
-  return response.json();
-}
-
 export async function fetchPublicEvents(search?: string): Promise<import('../types/public').PublicEventListItem[]> {
   const query = search && search.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
   const response = await authFetch(`${API_BASE}/public/events${query}`);

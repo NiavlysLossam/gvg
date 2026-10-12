@@ -1233,8 +1233,8 @@ def test_delete_spot_active_order_rejected(client: TestClient, db_session: Sessi
     assert "réservé ou associé à une commande active" in del_res.json()["detail"]
 
 
-def test_bulk_update_spots_pricing_skips_reserved_and_active_orders(client: TestClient, db_session: Session):
-    """Test bulk-update-pricing updates all available spots to a fixed price and skips reserved or active-order spots."""
+def test_update_event_price_per_meter_recalculates_available_spots_only(client: TestClient, db_session: Session):
+    """Test updating event price_per_meter recalculates all available spots by linear_meters and skips reserved, actively locked, or active-order spots."""
     event = create_sample_event(client, price_per_meter=5.0)
     event_id = event["id"]
 
@@ -1246,23 +1246,23 @@ def test_bulk_update_spots_pricing_skips_reserved_and_active_orders(client: Test
     # S5: status == 'locked' with future locked_until (2m -> 10.00€)
     s1 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Bulk-1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
     s2 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Bulk-2", "linear_meters": 4.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-2", "linear_meters": 4.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
     s3 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Bulk-3-Res", "linear_meters": 3.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-3-Res", "linear_meters": 3.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
     s4 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Bulk-4-Order", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-4-Order", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
     s5 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Bulk-5-Locked", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-5-Locked", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
 
     # Mark S3 as reserved
@@ -1275,31 +1275,34 @@ def test_bulk_update_spots_pricing_skips_reserved_and_active_orders(client: Test
     spot5_obj.locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
     db_session.commit()
 
-    # Sub-cent fixed_price is rejected with 422
-    invalid_res = client.post(
-        f"/api/v1/events/{event_id}/spots/bulk-update-pricing",
-        json={"fixed_price": 0.001},
+    # Sub-cent price_per_meter is rejected with 422
+    invalid_res = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"price_per_meter": 0.001},
     )
     assert invalid_res.status_code == 422
 
-    # Apply bulk fixed price of 18.50 €
-    bulk_res = client.post(
-        f"/api/v1/events/{event_id}/spots/bulk-update-pricing",
-        json={"fixed_price": 18.50},
+    # Update event price_per_meter from 5.00 € to 7.50 € / m
+    patch_res = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"price_per_meter": 7.50},
     )
-    assert bulk_res.status_code == 200
-    data = bulk_res.json()
-    assert data["updated_count"] == 2
-    assert data["locked_skipped_count"] == 3
+    assert patch_res.status_code == 200
+    assert patch_res.json()["price_per_meter"] == 7.50
+    assert patch_res.json()["price_per_meter_cents"] == 750
 
-    # Verify individual spot prices
+    # Verify individual spot prices:
+    # S1 (2m * 7.50€) -> 1500 cents
+    # S2 (4m * 7.50€) -> 3000 cents
+    # S3, S4, S5 -> untouched
     spots_list = client.get(f"/api/v1/events/{event_id}/spots").json()["features"]
     prices_by_id = {f["id"]: f["properties"]["price_cents"] for f in spots_list}
-    assert prices_by_id[s1] == 1850
-    assert prices_by_id[s2] == 1850
-    assert prices_by_id[s3] == 1500  # untouched (reserved)
+    assert prices_by_id[s1] == 1500
+    assert prices_by_id[s2] == 3000
+    assert prices_by_id[s3] == 1500  # untouched (reserved at 3m * 5.00€)
     assert prices_by_id[s4] == 1000  # untouched (active order)
     assert prices_by_id[s5] == 1000  # untouched (actively locked)
+
 
 
 

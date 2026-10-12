@@ -1,6 +1,6 @@
 import uuid
 import shutil
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, Body, Response, status
@@ -13,6 +13,7 @@ from app.core.config import settings
 from app.core.database import get_db
 from app.models.event import Event
 from app.models.spot import Spot
+from app.models.order import Order, BookingItem
 from app.models.user import User, UserRole
 from app.api.deps import get_current_user, check_event_ownership, require_super_admin
 from app.schemas.event import (
@@ -22,6 +23,8 @@ from app.schemas.event import (
     EventResponse,
     EventListResponse,
 )
+
+ACTIVE_ORDER_STATUSES = ["confirmed", "pending", "pending_approval", "cancellation_requested"]
 
 router = APIRouter()
 
@@ -198,8 +201,40 @@ def update_event(
         update_data["slug"] = generate_unique_slug(db, update_data["title"], exclude_event_id=event.id)
 
     old_poster = event.poster_image_url
+    old_price_per_meter_cents = event.price_per_meter_cents
     for field, value in update_data.items():
         setattr(event, field, value)
+
+    # If price_per_meter_cents changed, recalculate price_cents on all spots that are neither reserved
+    # nor actively locked in a cart nor attached to an active order
+    if (
+        "price_per_meter_cents" in update_data
+        and update_data["price_per_meter_cents"] is not None
+        and update_data["price_per_meter_cents"] != old_price_per_meter_cents
+    ):
+        new_rate_cents = update_data["price_per_meter_cents"]
+        now_utc = datetime.now(timezone.utc)
+        active_spot_ids = set(
+            row[0]
+            for row in (
+                db.query(BookingItem.spot_id)
+                .join(Order, Order.id == BookingItem.order_id)
+                .filter(
+                    Order.event_id == event.id,
+                    Order.status.in_(ACTIVE_ORDER_STATUSES),
+                )
+                .all()
+            )
+        )
+        event_spots = db.query(Spot).filter(Spot.event_id == event.id).all()
+        for spot in event_spots:
+            is_actively_locked = False
+            if spot.status == "locked" and spot.locked_until is not None:
+                lu = spot.locked_until if spot.locked_until.tzinfo else spot.locked_until.replace(tzinfo=timezone.utc)
+                if lu > now_utc:
+                    is_actively_locked = True
+            if spot.status != "reserved" and not is_actively_locked and spot.id not in active_spot_ids:
+                spot.price_cents = int(round(spot.linear_meters * new_rate_cents))
 
     try:
         db.commit()

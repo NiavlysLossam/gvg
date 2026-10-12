@@ -19,7 +19,7 @@ import {
   Coffee,
 } from 'lucide-react';
 import { EventModel, EventStatus, EventUpdateInput, EVENT_SERVICES_OPTIONS } from '../types/event';
-import { updateEvent, uploadEventPoster, deleteEventPoster, bulkUpdateSpotsPricing, ApiError } from '../lib/api';
+import { updateEvent, uploadEventPoster, deleteEventPoster, ApiError } from '../lib/api';
 
 interface EventSettingsPageProps {
   event: EventModel;
@@ -72,9 +72,9 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
   );
   const [rulesText, setRulesText] = useState(event.rules_text || '');
 
-  // Bulk spot pricing state
-  const [bulkFixedPrice, setBulkFixedPrice] = useState<string>('15');
-  const [applyingBulkPrice, setApplyingBulkPrice] = useState(false);
+  const initialPricePerMeterCents =
+    event.price_per_meter_cents ?? Math.round((event.price_per_meter ?? 4.0) * 100);
+  const isPricePerMeterModified = Math.round(pricePerMeter * 100) !== initialPricePerMeterCents;
 
   // Poster upload state
   const [posterUrl, setPosterUrl] = useState<string | null>(event.poster_image_url || null);
@@ -205,6 +205,13 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
       return;
     }
 
+    if (isPricePerMeterModified) {
+      const confirmed = window.confirm(
+        `Confirmez-vous la modification du tarif à ${pricePerMeter.toFixed(2)} € / m ?\n\nCe nouveau tarif sera automatiquement appliqué à chaque stand non réservé et non en cours de réservation.`
+      );
+      if (!confirmed) return;
+    }
+
     setSaving(true);
     try {
       const updatePayload: EventUpdateInput = {
@@ -239,40 +246,6 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
       }
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleBulkPriceUpdate = async () => {
-    const priceNum = parseFloat(bulkFixedPrice);
-    if (isNaN(priceNum) || priceNum <= 0) {
-      setError('Veuillez saisir un tarif fixe valide strictement supérieur à 0 €.');
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `Confirmez-vous l'application du tarif fixe de ${priceNum.toFixed(2)} € à tous les stands disponibles ?\n\nLes stands déjà réservés ou liés à une commande active ne seront pas modifiés.`
-    );
-    if (!confirmed) return;
-
-    setError(null);
-    setSuccessMessage(null);
-    setApplyingBulkPrice(true);
-    try {
-      const res = await bulkUpdateSpotsPricing(event.id, priceNum);
-      setSuccessMessage(
-        `Tarif mis à jour avec succès : ${res.updated_count} stand(s) modifié(s) (${res.locked_skipped_count} stand(s) réservé(s) ou en commande ignoré(s)).`
-      );
-      setTimeout(() => setSuccessMessage(null), 6000);
-    } catch (err: unknown) {
-      if (err instanceof ApiError) {
-        setError(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
-      } else if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Une erreur est survenue lors de la mise à jour groupée des tarifs.');
-      }
-    } finally {
-      setApplyingBulkPrice(false);
     }
   };
 
@@ -703,50 +676,19 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
               </div>
             </div>
 
-            {/* Modification en masse du prix des stands (montant fixe) */}
-            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-3">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
-                  <Euro className="w-4 h-4 text-amber-600" />
-                  <span>Modifier le prix de tous les stands d'un coup (montant fixe)</span>
-                </h3>
-                <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
-                  Applique un tarif unique fixe à l'ensemble des emplacements de l'événement.{' '}
-                  <strong>Les stands déjà réservés ou en cours de commande ne seront pas impactés.</strong>
-                </p>
-              </div>
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                <div className="relative w-full sm:w-48">
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0.01"
-                    value={bulkFixedPrice}
-                    onChange={(e) => setBulkFixedPrice(e.target.value)}
-                    placeholder="15.00"
-                    className="w-full px-3 py-2 border border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-sm font-bold text-gray-900 pr-12 transition"
-                  />
-                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500 font-semibold text-xs">
-                    € / stand
-                  </div>
+            {/* Message d'alerte lors de la modification du prix au mètre */}
+            {isPricePerMeterModified && (
+              <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/60 flex items-start gap-3">
+                <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                <div className="text-xs text-amber-900 leading-relaxed">
+                  <p className="font-bold">Modification du tarif au mètre détectée</p>
+                  <p className="mt-0.5">
+                    Lors de l'enregistrement, ce nouveau tarif (<strong>{pricePerMeter.toFixed(2)} € / m</strong>) sera automatiquement appliqué à chaque stand disponible selon son métrage.{' '}
+                    <strong>Les stands déjà réservés ou en cours de réservation conserveront leur tarif actuel.</strong>
+                  </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleBulkPriceUpdate}
-                  disabled={applyingBulkPrice}
-                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50"
-                >
-                  {applyingBulkPrice ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Application en cours...</span>
-                    </>
-                  ) : (
-                    <span>Appliquer aux stands disponibles</span>
-                  )}
-                </button>
               </div>
-            </div>
+            )}
 
             {/* Email contact organisateur */}
             <div className="pt-4 border-t border-gray-100">
