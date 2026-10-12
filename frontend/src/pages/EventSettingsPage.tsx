@@ -74,7 +74,10 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
 
   const initialPricePerMeterCents =
     event.price_per_meter_cents ?? Math.round((event.price_per_meter ?? 4.0) * 100);
-  const isPricePerMeterModified = Math.round(pricePerMeter * 100) !== initialPricePerMeterCents;
+  const isPricePerMeterModified =
+    pricePerMeter >= 0.01 &&
+    pricePerMeter <= 100000 &&
+    Math.round(pricePerMeter * 100) !== initialPricePerMeterCents;
 
   // Poster upload state
   const [posterUrl, setPosterUrl] = useState<string | null>(event.poster_image_url || null);
@@ -83,7 +86,7 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync state if event prop changes
+  // Sync form state when switching event
   useEffect(() => {
     setTitle(event.title || '');
     setDescription(event.description || '');
@@ -102,8 +105,11 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
     );
     setManualApprovalRequired(Boolean(event.manual_approval_required));
     setRulesText(event.rules_text || '');
+  }, [event.id]);
+
+  useEffect(() => {
     setPosterUrl(event.poster_image_url || null);
-  }, [event]);
+  }, [event.poster_image_url]);
 
   // Form submission state
   const [saving, setSaving] = useState(false);
@@ -200,8 +206,8 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
       return;
     }
 
-    if (pricePerMeter <= 0) {
-      setError('Le tarif au mètre linéaire doit être strictement supérieur à 0 €.');
+    if (pricePerMeter < 0.01 || Math.round(pricePerMeter * 100) < 1 || pricePerMeter > 100000) {
+      setError('Le tarif au mètre linéaire doit être compris entre 0,01 € et 100 000 €.');
       return;
     }
 

@@ -234,7 +234,7 @@ def update_event(
                 if lu > now_utc:
                     is_actively_locked = True
             if spot.status != "reserved" and not is_actively_locked and spot.id not in active_spot_ids:
-                spot.price_cents = int(round(spot.linear_meters * new_rate_cents))
+                spot.price_cents = max(1, int(round(spot.linear_meters * new_rate_cents)))
 
     try:
         db.commit()

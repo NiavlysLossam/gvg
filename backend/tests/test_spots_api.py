@@ -1234,23 +1234,25 @@ def test_delete_spot_active_order_rejected(client: TestClient, db_session: Sessi
 
 
 def test_update_event_price_per_meter_recalculates_available_spots_only(client: TestClient, db_session: Session):
-    """Test updating event price_per_meter recalculates all available spots by linear_meters and skips reserved, actively locked, or active-order spots."""
+    """Test updating event price_per_meter recalculates all available/expired-lock/cancelled-order spots by linear_meters and skips reserved, actively locked, or active-order spots."""
     event = create_sample_event(client, price_per_meter=5.0)
     event_id = event["id"]
 
-    # Create 5 spots:
-    # S1: available (2m -> 10.00€)
-    # S2: available (4m -> 20.00€)
+    # Create 7 spots:
+    # S1: available with custom price override (2m -> custom 18.00€)
+    # S2: available (2.5m -> 12.50€)
     # S3: status == 'reserved' (3m -> 15.00€)
     # S4: status == 'available' but linked to active pending_approval order (2m -> 10.00€)
     # S5: status == 'locked' with future locked_until (2m -> 10.00€)
+    # S6: status == 'locked' with expired locked_until in the past (2m -> 10.00€)
+    # S7: status == 'available' linked only to a cancelled order (3m -> 15.00€)
     s1 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Spot-1", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-1", "linear_meters": 2.0, "price_cents": 1800, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
     s2 = client.post(
         f"/api/v1/events/{event_id}/spots",
-        json={"label": "Spot-2", "linear_meters": 4.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+        json={"label": "Spot-2", "linear_meters": 2.5, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
     s3 = client.post(
         f"/api/v1/events/{event_id}/spots",
@@ -1264,6 +1266,14 @@ def test_update_event_price_per_meter_recalculates_available_spots_only(client: 
         f"/api/v1/events/{event_id}/spots",
         json={"label": "Spot-5-Locked", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
     ).json()["id"]
+    s6 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Spot-6-ExpiredLock", "linear_meters": 2.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    ).json()["id"]
+    s7 = client.post(
+        f"/api/v1/events/{event_id}/spots",
+        json={"label": "Spot-7-CancelledOrder", "linear_meters": 3.0, "geometry": {"type": "Polygon", "coordinates": SAMPLE_POLY_COORDS}},
+    ).json()["id"]
 
     # Mark S3 as reserved
     client.patch(f"/api/v1/events/{event_id}/spots/{s3}", json={"status": "reserved"})
@@ -1273,16 +1283,41 @@ def test_update_event_price_per_meter_recalculates_available_spots_only(client: 
     spot5_obj = db_session.query(Spot).filter(Spot.id == uuid.UUID(s5)).first()
     spot5_obj.status = "locked"
     spot5_obj.locked_until = datetime.now(timezone.utc) + timedelta(minutes=10)
+    # Mark S6 as expired lock in cart
+    spot6_obj = db_session.query(Spot).filter(Spot.id == uuid.UUID(s6)).first()
+    spot6_obj.status = "locked"
+    spot6_obj.locked_until = datetime.now(timezone.utc) - timedelta(minutes=5)
+    db_session.commit()
+    # Link S7 to a cancelled order (spot remains available)
+    create_order_for_spot(db_session, event_id, s7, price_cents=1500, order_status="cancelled")
+    spot7_obj = db_session.query(Spot).filter(Spot.id == uuid.UUID(s7)).first()
+    spot7_obj.status = "available"
     db_session.commit()
 
-    # Sub-cent price_per_meter is rejected with 422
-    invalid_res = client.patch(
-        f"/api/v1/events/{event_id}",
-        json={"price_per_meter": 0.001},
-    )
-    assert invalid_res.status_code == 422
+    # 1. Invalid price_per_meter values (< 0.01, > 100000, null) are rejected with 422
+    for invalid_payload in (
+        {"price_per_meter": 0.001},
+        {"price_per_meter": 0.006},
+        {"price_per_meter": 200000.0},
+        {"price_per_meter_cents": None},
+        {"price_per_meter": 0.001, "price_per_meter_cents": 500},
+    ):
+        invalid_res = client.patch(f"/api/v1/events/{event_id}", json=invalid_payload)
+        assert invalid_res.status_code == 422, f"Expected 422 for {invalid_payload}"
 
-    # Update event price_per_meter from 5.00 € to 7.50 € / m
+    # 2. Updating event with the SAME price_per_meter (5.00 €) preserves S1's manual override (1800 cents)
+    same_rate_res = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"title": "Brocante Tarif Inchange", "price_per_meter": 5.0},
+    )
+    assert same_rate_res.status_code == 200
+    spots_before = {
+        f["id"]: f["properties"]
+        for f in client.get(f"/api/v1/events/{event_id}/spots").json()["features"]
+    }
+    assert spots_before[s1]["price_cents"] == 1800
+
+    # 3. Update event price_per_meter from 5.00 € to 7.50 € / m
     patch_res = client.patch(
         f"/api/v1/events/{event_id}",
         json={"price_per_meter": 7.50},
@@ -1292,16 +1327,23 @@ def test_update_event_price_per_meter_recalculates_available_spots_only(client: 
     assert patch_res.json()["price_per_meter_cents"] == 750
 
     # Verify individual spot prices:
-    # S1 (2m * 7.50€) -> 1500 cents
-    # S2 (4m * 7.50€) -> 3000 cents
+    # S1 (2m * 7.50€) -> 1500 cents (15.0 €)
+    # S2 (2.5m * 7.50€) -> 1875 cents (18.75 €)
     # S3, S4, S5 -> untouched
+    # S6 (expired lock, 2m * 7.50€) -> 1500 cents
+    # S7 (cancelled order, 3m * 7.50€) -> 2250 cents
     spots_list = client.get(f"/api/v1/events/{event_id}/spots").json()["features"]
-    prices_by_id = {f["id"]: f["properties"]["price_cents"] for f in spots_list}
-    assert prices_by_id[s1] == 1500
-    assert prices_by_id[s2] == 3000
-    assert prices_by_id[s3] == 1500  # untouched (reserved at 3m * 5.00€)
-    assert prices_by_id[s4] == 1000  # untouched (active order)
-    assert prices_by_id[s5] == 1000  # untouched (actively locked)
+    props_by_id = {f["id"]: f["properties"] for f in spots_list}
+    assert props_by_id[s1]["price_cents"] == 1500
+    assert props_by_id[s1]["price"] == 15.0
+    assert props_by_id[s2]["price_cents"] == 1875
+    assert props_by_id[s2]["price"] == 18.75
+    assert props_by_id[s3]["price_cents"] == 1500  # untouched (reserved at 3m * 5.00€)
+    assert props_by_id[s4]["price_cents"] == 1000  # untouched (active order)
+    assert props_by_id[s5]["price_cents"] == 1000  # untouched (actively locked)
+    assert props_by_id[s6]["price_cents"] == 1500  # recalculated (expired lock)
+    assert props_by_id[s7]["price_cents"] == 2250  # recalculated (cancelled order)
+
 
 
 

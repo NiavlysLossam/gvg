@@ -53,8 +53,8 @@ class EventBase(BaseModel):
 
 
 class EventCreate(EventBase):
-    price_per_meter: Optional[float] = Field(None, description="Tarif au mètre linéaire en euros (ex: 4.00)")
-    price_per_meter_cents: Optional[int] = Field(None, description="Tarif au mètre linéaire en centimes (ex: 400)")
+    price_per_meter: Optional[float] = Field(None, ge=0.01, le=100000.0, allow_inf_nan=False, description="Tarif au mètre linéaire en euros (ex: 4.00)")
+    price_per_meter_cents: Optional[int] = Field(None, ge=1, le=10000000, description="Tarif au mètre linéaire en centimes (ex: 400)")
 
     @model_validator(mode="after")
     def validate_dates_and_price(self) -> "EventCreate":
@@ -64,15 +64,10 @@ class EventCreate(EventBase):
 
         # Price validation
         if self.price_per_meter is not None:
-            if self.price_per_meter <= 0:
-                raise ValueError("price_per_meter must be greater than 0")
             if self.price_per_meter_cents is None:
                 self.price_per_meter_cents = int(round(self.price_per_meter * 100))
 
-        if self.price_per_meter_cents is not None:
-            if self.price_per_meter_cents <= 0:
-                raise ValueError("price_per_meter_cents must be greater than 0")
-        else:
+        if self.price_per_meter_cents is None or self.price_per_meter_cents <= 0:
             raise ValueError("Price per meter (price_per_meter or price_per_meter_cents) is required")
 
         return self
@@ -105,8 +100,8 @@ class EventUpdate(BaseModel):
     rules_text: Optional[str] = Field(None, max_length=10000)
     status: Optional[Literal["draft", "published", "archived"]] = None
     
-    price_per_meter: Optional[float] = None
-    price_per_meter_cents: Optional[int] = None
+    price_per_meter: Optional[float] = Field(None, ge=0.01, le=100000.0, allow_inf_nan=False)
+    price_per_meter_cents: Optional[int] = Field(None, ge=1, le=10000000)
 
     @field_validator("services", mode="after")
     @classmethod
@@ -120,12 +115,11 @@ class EventUpdate(BaseModel):
         if self.start_date and self.end_date and _to_utc(self.end_date) < _to_utc(self.start_date):
             raise ValueError("end_date must be greater than or equal to start_date")
         if self.price_per_meter is not None:
-            if self.price_per_meter <= 0:
-                raise ValueError("price_per_meter must be greater than 0")
-            if self.price_per_meter_cents is None:
-                self.price_per_meter_cents = int(round(self.price_per_meter * 100))
-        if self.price_per_meter_cents is not None and self.price_per_meter_cents <= 0:
-            raise ValueError("price_per_meter_cents must be greater than 0")
+            self.price_per_meter_cents = int(round(self.price_per_meter * 100))
+        elif "price_per_meter_cents" in self.model_fields_set and self.price_per_meter_cents is None:
+            raise ValueError("price_per_meter_cents cannot be null")
+        if "price_per_meter" in self.model_fields_set and self.price_per_meter is None and self.price_per_meter_cents is None:
+            raise ValueError("price_per_meter cannot be null")
         return self
 
 

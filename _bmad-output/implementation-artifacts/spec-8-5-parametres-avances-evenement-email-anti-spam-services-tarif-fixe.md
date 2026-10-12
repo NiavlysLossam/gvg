@@ -5,7 +5,7 @@ created: '2026-10-12'
 status: 'done'
 baseline_commit: 3f9a3c556065c8fa548d2df094e87be71984ce27
 route: 'dispatch'
-review_loop_iteration: 1
+review_loop_iteration: 2
 context:
   - _bmad-output/implementation-artifacts/epic-8-context.md
 ---
@@ -22,7 +22,7 @@ context:
 **Approach:**
 1. **E-mail de contact & Anti-Spam** : Clarifier dans `EventForm.tsx` et `EventSettingsPage.tsx` que `organizer_email` est une adresse publique dédiée à l'événement (distincte du compte admin). Masquer par défaut l'adresse sur `EventShowcasePage.tsx` derrière un bouton « Afficher l'e-mail » avant de révéler l'adresse complète et le lien `mailto:`. Ajouter l'en-tête `Reply-To: <event.organizer_email>` sur tous les e-mails transactionnels, rappels J-7/J-2 et diffusions groupées.
 2. **Services configurables (liste fermée de 5 services)** : Ajouter une colonne JSON `services` sur le modèle `Event` (migration Alembic `011_add_services_to_events.py`), exposée dans les schémas `EventBase`, `EventUpdate`, `EventResponse`, `PublicEventResponse` et `PublicEventListItem`, ainsi que lors de la duplication d'événement. Ajouter 5 cases à cocher (`buvette`, `restauration`, `sanitaires`, `parking`, `pmr`) dans `EventForm.tsx` et `EventSettingsPage.tsx`, et filtrer l'affichage sur `EventShowcasePage.tsx` (masquer la section si aucun service n'est coché).
-3. **Recalcul automatique du prix des stands lors de la modification du tarif au mètre (`price_per_meter`)** : Lors de l'appel à `PATCH /api/v1/events/{id_or_slug}` modifiant `price_per_meter`, recalculer automatiquement `spot.price_cents = int(round(spot.linear_meters * new_price_per_meter_cents))` sur chaque stand de l'événement qui n'est **ni** en statut `reserved`, **ni** en cours de réservation dans un panier actif (`spot.status == "locked"` avec `locked_until > now`), **ni** lié à une commande active (`confirmed`, `pending`, `pending_approval`, `cancellation_requested`). Afficher un message d'alerte et une demande de confirmation dans `EventSettingsPage.tsx` lorsque `pricePerMeter` est modifié.
+3. **Recalcul automatique du prix des stands lors de la modification du tarif au mètre (`price_per_meter`)** : Lors de l'appel à `PATCH /api/v1/events/{id_or_slug}` modifiant `price_per_meter`, recalculer automatiquement `spot.price_cents = max(1, int(round(spot.linear_meters * new_price_per_meter_cents)))` sur chaque stand de l'événement qui n'est **ni** en statut `reserved`, **ni** en cours de réservation dans un panier actif (`spot.status == "locked"` avec `locked_until > now`), **ni** lié à une commande active (`confirmed`, `pending`, `pending_approval`, `cancellation_requested`). Afficher un message d'alerte et une demande de confirmation dans `EventSettingsPage.tsx` lorsque `pricePerMeter` est modifié.
 
 ## Boundaries & Constraints
 
@@ -53,7 +53,7 @@ context:
 
 - `backend/alembic/versions/011_add_services_to_events.py` -- Migration Alembic ajoutant la colonne `services` (JSON) à `events` et initialisant les événements existants avec les 5 services.
 - `backend/app/models/event.py` -- Ajout de `services = Column(JSON, nullable=True, default=list)`.
-- `backend/app/schemas/event.py` -- Ajout de `ServiceType = Literal["buvette", "restauration", "sanitaires", "parking", "pmr"]` et déduplication/validation de `services` dans `EventBase` et `EventUpdate`.
+- `backend/app/schemas/event.py` -- Ajout de `ServiceType = Literal["buvette", "restauration", "sanitaires", "parking", "pmr"]`, déduplication/validation de `services` et bornes `ge=0.01, le=100000.0` sur `price_per_meter` (`ge=1, le=10000000` sur `price_per_meter_cents`) dans `EventCreate` et `EventUpdate`.
 - `backend/app/schemas/public.py` -- Ajout de `services` dans `PublicEventResponse` et `PublicEventListItem`.
 - `backend/app/api/v1/endpoints/events.py` -- Recalcul automatique du prix des stands non réservés/non verrouillés lorsque `price_per_meter` change dans `update_event`, et copie de `services` dans `duplicate_event`.
 - `backend/app/api/v1/endpoints/public.py` -- Exposition de `services` dans `list_public_events` et `get_public_event`.
@@ -92,11 +92,15 @@ context:
 - [x] **F4 (Blind Hunter / Edge Case Hunter)** : `send_raw_email` dans `email_service.py` n'épurait pas les caractères CR/LF (`\r`, `\n`) de `reply_to` avant de construire l'en-tête MIME `Reply-To`.
 - [x] **F5 (Acceptance Auditor / Edge Case Hunter)** : Dans `EventShowcasePage.tsx`, `event.services` n'était pas filtré contre les 5 clés connues avant de décider d'afficher la section, la carte `pmr` conservait une classe `col-span-2 sm:col-span-1` orpheline lorsque moins de 5 cartes étaient affichées, et `maskEmail` gérait mal les sous-domaines multiples (`co***@mail.asso.fr`).
 - [x] **F6 (Verification Gap)** : `test_migrations.py` ne vérifiait pas la présence de la colonne `services` (ni `wms_url`/`wms_layer`), et il manquait des tests pour `ServiceType` invalide (422), stand verrouillé (`locked`), montant `< 0.01` € (422), et `Reply-To` sur e-mail avec pièces jointes (`multipart/mixed`).
+- [x] **F7 (Acceptance Auditor / Edge Case Hunter / Blind Hunter — Iteration 2 Rectification)** : Dans `EventUpdate` et `EventCreate` (`backend/app/schemas/event.py`), `price_per_meter` utilisait `gt=0` au lieu de `ge=0.01, le=100000.0` (acceptant des valeurs sub-centimes comme `0.006` € ou des flottants géants `1e15` provoquant un `OverflowError` PostgreSQL), permettait de contourner la validation si `price_per_meter` et `price_per_meter_cents` étaient envoyés simultanément ou mis à `null`, et un stand très court (`linear_meters` faible) pouvait être arrondi à `0` centime sans `max(1, ...)`.
+- [x] **F8 (Blind Hunter / Edge Case Hunter — Iteration 2 Rectification)** : Dans `EventSettingsPage.tsx`, vider le champ tarif au mètre (`pricePerMeter = 0`) affichait un bandeau d'alerte trompeur « nouveau tarif de 0.00 € / m », et l'effet `useEffect(..., [event])` réinitialisait les saisies non sauvegardées du formulaire lors de l'ajout/suppression d'une affiche.
+- [x] **F9 (Verification Gap — Iteration 2 Rectification)** : Dans `test_spots_api.py`, il manquait des tests vérifiant : (a) le rejet HTTP 422 pour `price_per_meter < 0.01` (`0.001`, `0.006`), `> 100000`, `null` explicite ou contournement mixte `price_per_meter` + `price_per_meter_cents`, (b) la préservation des prix personnalisés des stands lorsque `PATCH /api/v1/events/{id}` est appelé avec le **même** `price_per_meter`, et (c) le recalcul effectif d'un stand dont le verrou panier a expiré (`locked_until < now`) ou rattaché uniquement à une commande `cancelled`.
 
 ## Spec Change Log
 
 - **Iteration 1** : Application des correctifs issus des 4 sous-agents de revue BMAD (`Acceptance Auditor`, `Blind Hunter`, `Edge Case Hunter`, `Verification Gap`) et enrichissement de la suite de tests.
 - **Renégociation utilisateur (Point 3)** : Remplacement de la modification de tarif par montant fixe par le recalcul automatique du prix des stands non réservés / non en cours de réservation lors de la modification du tarif au mètre (`price_per_meter`) dans les paramètres de l'événement, avec conservation du message d'alerte.
+- **Iteration 2 (Revue BMAD de la rectification)** : Exécution des 4 sous-agents de revue BMAD (`Blind Hunter Reviewer 8.5 Rectif`, `Edge Case Hunter Reviewer 8.5 Rectif`, `Verification Gap Reviewer 8.5 Rectif`, `Acceptance Auditor 8.5 Rectif`) sur la rectification du tarif au mètre et application des correctifs F7, F8 et F9.
 
 ## Review Triage Log
 
@@ -109,4 +113,11 @@ context:
 | F4: Sanitization CR/LF sur `reply_to` | **Fix** | Défense en profondeur contre l'injection d'en-têtes SMTP. |
 | F5: Filtrage `activeServices`, grille CSS `pmr` et `maskEmail` multi-points | **Fix** | Évite une section vide sur clés inconnues, améliore l'alignement responsive et renforce le masquage d'e-mail. |
 | F6: Couverture de tests additionnelle (`test_migrations`, `test_events_api`, `test_spots_api`, `test_email_service`) | **Fix** | Couvre toutes les branches et cas limites identifiés par `Verification Gap`. |
+
+### Iteration 2 (Rectification `price_per_meter`)
+| Finding | Decision | Rationale |
+|---------|----------|-----------|
+| F7: Bornes `ge=0.01, le=100000.0` sur `price_per_meter`, synchro inconditionnelle `price_per_meter_cents`, rejet de `null` et plancher `max(1, ...)` sur `spot.price_cents` | **Fix** | Empêche les tarifs sub-centimes, les `OverflowError` PostgreSQL, le contournement de validation et les stands gratuits par erreur d'arrondi. |
+| F8: Garde `pricePerMeter >= 0.01` sur `isPricePerMeterModified` et dépendances `[event.id]` dans `EventSettingsPage.tsx` | **Fix** | Évite d'afficher « 0.00 € / m » dans le bandeau d'alerte quand le champ est vidé et préserve les modifications non enregistrées lors d'un upload d'affiche. |
+| F9: Tests `test_spots_api.py` pour 422 (`0.001`, `0.006`, `>100000`, `null`), non-écrasement des prix personnalisés à tarif constant, verrous expirés et commandes annulées | **Fix** | Couvre l'ensemble des cas limites et critères d'acceptation de la rectification. |
 
