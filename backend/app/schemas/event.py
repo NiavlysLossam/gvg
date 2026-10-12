@@ -34,6 +34,7 @@ class EventBase(BaseModel):
     
     location_address: Optional[str] = Field(None, max_length=500, description="Adresse physique de l'événement")
     organizer_email: Optional[str] = Field(None, max_length=255, description="Email de contact de l'organisateur")
+    services: Optional[List[str]] = Field(default_factory=list, description="Liste des services présents (buvette, restauration, sanitaires, parking, pmr)")
     
     manual_approval_required: bool = Field(False, description="Modération manuelle requise pour les réservations")
     rules_text: Optional[str] = Field(None, max_length=10000, description="Règlement intérieur de l'événement")
@@ -88,6 +89,7 @@ class EventUpdate(BaseModel):
     
     location_address: Optional[str] = Field(None, max_length=500)
     organizer_email: Optional[str] = Field(None, max_length=255)
+    services: Optional[List[str]] = None
     manual_approval_required: Optional[bool] = None
     rules_text: Optional[str] = Field(None, max_length=10000)
     status: Optional[Literal["draft", "published", "archived"]] = None

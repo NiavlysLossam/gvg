@@ -23,6 +23,8 @@ from app.schemas.spot import (
     SpotBatchCreateResponse,
     SpotBatchRenumber,
     SpotBatchRenumberResponse,
+    BulkSpotPriceUpdateRequest,
+    BulkSpotPriceUpdateResponse,
     geojson_to_wkt_polygon,
     spot_to_feature,
     spots_to_feature_collection,
@@ -726,5 +728,55 @@ def delete_spot(
     db.delete(spot)
     db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/{id_or_slug}/spots/bulk-update-pricing",
+    response_model=BulkSpotPriceUpdateResponse,
+    summary="Bulk update pricing of all non-reserved spots to a fixed price",
+)
+def bulk_update_spots_pricing(
+    id_or_slug: str,
+    payload: BulkSpotPriceUpdateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BulkSpotPriceUpdateResponse:
+    """
+    Update the price of all spots in the event to a fixed price (in euros),
+    strictly skipping spots that are already reserved or linked to an active order.
+    """
+    event = get_event_by_id_or_slug(db, id_or_slug, current_user)
+    new_price_cents = int(round(payload.fixed_price * 100))
+
+    active_spot_ids = set(
+        row[0]
+        for row in (
+            db.query(BookingItem.spot_id)
+            .join(Order, Order.id == BookingItem.order_id)
+            .filter(
+                Order.event_id == event.id,
+                Order.status.in_(ACTIVE_ORDER_STATUSES),
+            )
+            .all()
+        )
+    )
+
+    spots = db.query(Spot).filter(Spot.event_id == event.id).all()
+    updated_count = 0
+    locked_skipped_count = 0
+
+    for spot in spots:
+        if spot.status == "reserved" or spot.id in active_spot_ids:
+            locked_skipped_count += 1
+        else:
+            spot.price_cents = new_price_cents
+            updated_count += 1
+
+    db.commit()
+    return BulkSpotPriceUpdateResponse(
+        updated_count=updated_count,
+        locked_skipped_count=locked_skipped_count,
+    )
+
 
 

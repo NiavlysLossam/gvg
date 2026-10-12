@@ -316,6 +316,7 @@ def send_broadcast_emails(
                 event_id=event.id,
                 order_id=None,
                 email_type="custom_broadcast",
+                reply_to=event.organizer_email,
                 db=session,
             )
 
@@ -378,6 +379,7 @@ def send_broadcast_emails(
                     event_id=event.id,
                     order_id=order.id,
                     email_type="custom_broadcast",
+                    reply_to=event.organizer_email,
                     db=session,
                 )
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Calendar, Clock, MapPin, Euro, Mail, FileText, CheckCircle2, AlertCircle, ShieldCheck, Image as ImageIcon } from 'lucide-react';
-import { EventCreateInput, EventModel } from '../types/event';
+import { Calendar, Clock, MapPin, Euro, Mail, FileText, CheckCircle2, AlertCircle, ShieldCheck, Image as ImageIcon, Coffee } from 'lucide-react';
+import { EventCreateInput, EventModel, EVENT_SERVICES_OPTIONS } from '../types/event';
 import { createEvent, ApiError } from '../lib/api';
 
 interface EventFormProps {
@@ -21,6 +21,7 @@ export const EventForm: React.FC<EventFormProps> = ({ onSuccess }) => {
     public_end_time: '18:00',
     location_address: '',
     organizer_email: '',
+    services: [],
     price_per_meter: 4.0,
     manual_approval_required: false,
     rules_text: '',
@@ -261,15 +262,61 @@ export const EventForm: React.FC<EventFormProps> = ({ onSuccess }) => {
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
             <Mail className="w-4 h-4 text-emerald-600" />
-            Email de contact organisateur
+            E-mail de contact de l'événement (public)
           </label>
           <input
             type="email"
             value={formData.organizer_email || ''}
             onChange={(e) => setFormData({ ...formData, organizer_email: e.target.value })}
-            placeholder="organisateur@association.fr"
+            placeholder="vide-grenier-2026@association.fr"
             className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none transition"
           />
+          <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+            Astuce anti-spam : utilisez une boîte e-mail dédiée à l'événement plutôt que votre adresse personnelle d'administrateur. Elle sera masquée par défaut sur la page publique et servira d'adresse de réponse aux e-mails envoyés aux exposants.
+          </p>
+        </div>
+      </div>
+
+      {/* Services présents sur place */}
+      <div className="pt-4 border-t border-gray-100 space-y-2">
+        <label className="block text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+          <Coffee className="w-4 h-4 text-emerald-600" />
+          Services &amp; commodités présents sur place
+        </label>
+        <p className="text-xs text-gray-500">
+          Sélectionnez les services disponibles qui seront affichés sur la vitrine publique de l'événement :
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5 pt-1">
+          {EVENT_SERVICES_OPTIONS.map((srv) => {
+            const checked = (formData.services || []).includes(srv.key);
+            return (
+              <label
+                key={srv.key}
+                className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                  checked
+                    ? 'border-emerald-500 bg-emerald-50/50 text-emerald-950'
+                    : 'border-gray-200 hover:border-gray-300 bg-white text-gray-700'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={(e) => {
+                    const current = formData.services || [];
+                    const next = e.target.checked
+                      ? [...current, srv.key]
+                      : current.filter((k) => k !== srv.key);
+                    setFormData({ ...formData, services: next });
+                  }}
+                  className="w-4 h-4 rounded text-emerald-600 border-gray-300 focus:ring-emerald-500 mt-0.5 cursor-pointer"
+                />
+                <div className="text-xs">
+                  <div className="font-bold">{srv.label}</div>
+                  <div className="text-gray-500 mt-0.5">{srv.description}</div>
+                </div>
+              </label>
+            );
+          })}
         </div>
       </div>
 

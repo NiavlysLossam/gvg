@@ -100,6 +100,7 @@ class PublicEventResponse(BaseModel):
     
     location_address: Optional[str] = None
     organizer_email: Optional[str] = None
+    services: Optional[List[str]] = Field(default_factory=list)
     rules_text: Optional[str] = None
     status: str = "published"
     total_spots: int = 0
@@ -161,6 +162,7 @@ class PublicEventListItem(BaseModel):
     public_end_time: Optional[str] = "18:00"
 
     location_address: Optional[str] = None
+    services: Optional[List[str]] = Field(default_factory=list)
     status: str = "published"
     total_spots: int = 0
     available_spots: int = 0

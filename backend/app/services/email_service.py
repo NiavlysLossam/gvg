@@ -74,10 +74,11 @@ def send_raw_email(
     email_type: str = "general",
     db: Optional[Session] = None,
     attachments: Optional[List[Tuple[str, bytes, str]]] = None,
+    reply_to: Optional[str] = None,
 ) -> Optional[EmailLog]:
     """
     Core function to deliver an email via SMTP or simulate delivery in development.
-    Supports optional attachments list of (filename, content_bytes, mime_type).
+    Supports optional attachments list of (filename, content_bytes, mime_type) and Reply-To header.
     Persists an EmailLog record in the database for traceability and audit.
     Never raises exceptions to the caller.
     """
@@ -99,8 +100,9 @@ def send_raw_email(
             # Simulated mode (development / tests)
             status = "simulated"
             att_info = f" (attachments: {len(attachments)})" if attachments else ""
+            reply_info = f" | Reply-To: {reply_to}" if reply_to else ""
             logger.info(
-                f"[EMAIL SIMULATION] Type: {email_type} | To: {recipient} | Subject: '{subject_safe}'{att_info}"
+                f"[EMAIL SIMULATION] Type: {email_type} | To: {recipient}{reply_info} | Subject: '{subject_safe}'{att_info}"
             )
         else:
             # Actual SMTP transmission with RFC 5322 UTF-8 compliant headers
@@ -116,6 +118,8 @@ def send_raw_email(
                 msg["Subject"] = Header(subject_safe, "utf-8")
                 msg["From"] = from_addr
                 msg["To"] = recipient
+                if reply_to and "@" in reply_to:
+                    msg["Reply-To"] = reply_to.strip()
 
                 alt_part = MIMEMultipart("alternative")
                 alt_part.attach(part_text)
@@ -135,6 +139,8 @@ def send_raw_email(
                 msg["Subject"] = Header(subject_safe, "utf-8")
                 msg["From"] = from_addr
                 msg["To"] = recipient
+                if reply_to and "@" in reply_to:
+                    msg["Reply-To"] = reply_to.strip()
                 msg.attach(part_text)
                 msg.attach(part_html)
 
@@ -323,6 +329,7 @@ def send_order_confirmation_email(
                 order_id=local_order.id,
                 email_type="confirmation",
                 db=session,
+                reply_to=local_event.organizer_email,
             )
 
         return send_raw_email(
@@ -334,6 +341,7 @@ def send_order_confirmation_email(
             order_id=local_order.id,
             email_type="confirmation",
             db=session,
+            reply_to=local_event.organizer_email,
         )
     finally:
         if own_session:
@@ -425,6 +433,7 @@ def send_moderation_decision_email(
                 order_id=local_order.id,
                 email_type=email_type,
                 db=session,
+                reply_to=local_event.organizer_email,
             )
 
         return send_raw_email(
@@ -436,6 +445,7 @@ def send_moderation_decision_email(
             order_id=local_order.id,
             email_type=email_type,
             db=session,
+            reply_to=local_event.organizer_email,
         )
     finally:
         if own_session:
@@ -523,6 +533,7 @@ def send_cancellation_arbitration_email(
                 order_id=local_order.id,
                 email_type=email_type,
                 db=session,
+                reply_to=local_event.organizer_email,
             )
 
         return send_raw_email(
@@ -534,6 +545,7 @@ def send_cancellation_arbitration_email(
             order_id=local_order.id,
             email_type=email_type,
             db=session,
+            reply_to=local_event.organizer_email,
         )
     finally:
         if own_session:
@@ -607,6 +619,7 @@ def send_event_cancellation_email(
                 order_id=local_order.id,
                 email_type="event_cancelled",
                 db=session,
+                reply_to=local_event.organizer_email,
             )
 
         return send_raw_email(
@@ -618,6 +631,7 @@ def send_event_cancellation_email(
             order_id=local_order.id,
             email_type="event_cancelled",
             db=session,
+            reply_to=local_event.organizer_email,
         )
     finally:
         if own_session:
@@ -719,6 +733,7 @@ def send_attestation_email(
             email_type="attestation",
             db=session,
             attachments=attachments,
+            reply_to=local_event.organizer_email,
         )
     finally:
         if own_session:

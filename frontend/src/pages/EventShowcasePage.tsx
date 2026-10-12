@@ -33,6 +33,18 @@ interface EventShowcasePageProps {
   onNavigateHome?: () => void;
 }
 
+function maskEmail(email: string): string {
+  const parts = email.split('@');
+  if (parts.length !== 2) return '••••••';
+  const [user, domain] = parts;
+  const maskedUser = user.length <= 2 ? `${user[0] || '*'}***` : `${user.slice(0, 2)}***`;
+  const domainParts = domain.split('.');
+  const tld = domainParts.length > 1 ? `.${domainParts[domainParts.length - 1]}` : '';
+  const domMain = domainParts[0] || '';
+  const maskedDom = domMain.length <= 2 ? `${domMain[0] || '*'}***` : `${domMain.slice(0, 2)}***`;
+  return `${maskedUser}@${maskedDom}${tld}`;
+}
+
 export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
   slug,
   onNavigateToMap,
@@ -45,12 +57,14 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
   const [lightboxOpen, setLightboxOpen] = useState<boolean>(false);
   const [copiedLink, setCopiedLink] = useState<boolean>(false);
   const [posterLoadError, setPosterLoadError] = useState<boolean>(false);
+  const [showContactEmail, setShowContactEmail] = useState<boolean>(false);
 
   useEffect(() => {
     let isMounted = true;
     setLoading(true);
     setError(null);
     setPosterLoadError(false);
+    setShowContactEmail(false);
 
     fetchPublicEvent(slug)
       .then((data) => {
@@ -479,54 +493,66 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
         </section>
 
         {/* COMMODITÉS ET SERVICES */}
-        <section className="bg-white rounded-3xl border border-gray-200 p-6 sm:p-8 shadow-xs space-y-6">
-          <div className="flex items-center gap-2">
-            <Coffee className="w-5 h-5 text-emerald-600" />
-            <h2 className="text-xl font-bold text-gray-900">Services &amp; commodités sur place</h2>
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
-                <Coffee className="w-6 h-6" />
-              </div>
-              <div className="font-bold text-sm text-gray-900">Buvette &amp; Café</div>
-              <div className="text-xs text-gray-500">Boissons fraîches et café chaud dès l'aube</div>
+        {event.services && event.services.length > 0 && (
+          <section className="bg-white rounded-3xl border border-gray-200 p-6 sm:p-8 shadow-xs space-y-6">
+            <div className="flex items-center gap-2">
+              <Coffee className="w-5 h-5 text-emerald-600" />
+              <h2 className="text-xl font-bold text-gray-900">Services &amp; commodités sur place</h2>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-red-100 text-red-700 flex items-center justify-center">
-                <Utensils className="w-6 h-6" />
-              </div>
-              <div className="font-bold text-sm text-gray-900">Restauration</div>
-              <div className="text-xs text-gray-500">Sandwiches, frites &amp; crêpes sur place</div>
-            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              {event.services.includes('buvette') && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
+                  <div className="w-12 h-12 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center">
+                    <Coffee className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-sm text-gray-900">Buvette &amp; Café</div>
+                  <div className="text-xs text-gray-500">Boissons fraîches et café chaud dès l'aube</div>
+                </div>
+              )}
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
-                <CheckCircle2 className="w-6 h-6" />
-              </div>
-              <div className="font-bold text-sm text-gray-900">Sanitaires</div>
-              <div className="text-xs text-gray-500">Toilettes publiques accessibles sur le site</div>
-            </div>
+              {event.services.includes('restauration') && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
+                  <div className="w-12 h-12 rounded-xl bg-red-100 text-red-700 flex items-center justify-center">
+                    <Utensils className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-sm text-gray-900">Restauration</div>
+                  <div className="text-xs text-gray-500">Sandwiches, frites &amp; crêpes sur place</div>
+                </div>
+              )}
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
-              <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                <Car className="w-6 h-6" />
-              </div>
-              <div className="font-bold text-sm text-gray-900">Parking</div>
-              <div className="text-xs text-gray-500">Stationnement à proximité immédiate</div>
-            </div>
+              {event.services.includes('sanitaires') && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
+                  <div className="w-12 h-12 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center">
+                    <CheckCircle2 className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-sm text-gray-900">Sanitaires</div>
+                  <div className="text-xs text-gray-500">Toilettes publiques accessibles sur le site</div>
+                </div>
+              )}
 
-            <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2 col-span-2 sm:col-span-1">
-              <div className="w-12 h-12 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
-                <Accessibility className="w-6 h-6" />
-              </div>
-              <div className="font-bold text-sm text-gray-900">Accès PMR</div>
-              <div className="text-xs text-gray-500">Allées et cheminements adaptés</div>
+              {event.services.includes('parking') && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                    <Car className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-sm text-gray-900">Parking</div>
+                  <div className="text-xs text-gray-500">Stationnement à proximité immédiate</div>
+                </div>
+              )}
+
+              {event.services.includes('pmr') && (
+                <div className="p-4 rounded-2xl bg-slate-50 border border-gray-200/80 flex flex-col items-center text-center space-y-2 col-span-2 sm:col-span-1">
+                  <div className="w-12 h-12 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center">
+                    <Accessibility className="w-6 h-6" />
+                  </div>
+                  <div className="font-bold text-sm text-gray-900">Accès PMR</div>
+                  <div className="text-xs text-gray-500">Allées et cheminements adaptés</div>
+                </div>
+              )}
             </div>
-          </div>
-        </section>
+          </section>
+        )}
 
         {/* DESCRIPTION & RÈGLEMENT */}
         <section className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -563,16 +589,26 @@ export const EventShowcasePage: React.FC<EventShowcasePageProps> = ({
                   <div className="min-w-0">
                     <div className="text-xs font-semibold text-gray-500">Contact Organisateur</div>
                     <div className="text-sm font-bold text-gray-900 truncate">
-                      {event.organizer_email}
+                      {showContactEmail ? event.organizer_email : maskEmail(event.organizer_email)}
                     </div>
                   </div>
                 </div>
-                <a
-                  href={`mailto:${event.organizer_email}`}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-gray-800 text-xs font-semibold transition shrink-0"
-                >
-                  Écrire
-                </a>
+                {showContactEmail ? (
+                  <a
+                    href={`mailto:${event.organizer_email}`}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold transition shrink-0"
+                  >
+                    Écrire
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setShowContactEmail(true)}
+                    className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-gray-800 text-xs font-semibold transition shrink-0"
+                  >
+                    Afficher l'e-mail
+                  </button>
+                )}
               </div>
             )}
           </div>

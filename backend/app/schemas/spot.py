@@ -450,3 +450,13 @@ def spots_to_feature_collection(spots_with_geojson: list) -> SpotFeatureCollecti
             payment_method = getattr(spot, "payment_method", None)
         features.append(spot_to_feature(spot, geojson_str, is_offline=is_offline, payment_method=payment_method))
     return SpotFeatureCollection(features=features)
+
+
+class BulkSpotPriceUpdateRequest(BaseModel):
+    fixed_price: float = Field(..., gt=0, description="Nouveau prix fixe en euros à appliquer à tous les stands disponibles")
+
+
+class BulkSpotPriceUpdateResponse(BaseModel):
+    updated_count: int = Field(..., description="Nombre de stands dont le prix a été mis à jour")
+    locked_skipped_count: int = Field(..., description="Nombre de stands réservés ou associés à une commande active qui ont été ignorés")
+

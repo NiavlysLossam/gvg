@@ -25,6 +25,7 @@ export interface EventModel {
   public_end_time?: string | null;
   location_address?: string | null;
   organizer_email?: string | null;
+  services?: string[] | null;
   stripe_account_id?: string | null;
   manual_approval_required: boolean;
   rules_text?: string | null;
@@ -52,6 +53,7 @@ export interface EventCreateInput {
   public_end_time?: string;
   location_address?: string;
   organizer_email?: string;
+  services?: string[];
   price_per_meter: number;
   manual_approval_required?: boolean;
   rules_text?: string;
@@ -77,6 +79,7 @@ export interface EventUpdateInput {
   public_end_time?: string | null;
   location_address?: string | null;
   organizer_email?: string | null;
+  services?: string[] | null;
   manual_approval_required?: boolean;
   rules_text?: string | null;
   status?: EventStatus;
@@ -92,4 +95,15 @@ export interface EventDuplicateInput {
   start_date?: string;
   end_date?: string;
 }
+
+export type EventServiceKey = 'buvette' | 'restauration' | 'sanitaires' | 'parking' | 'pmr';
+
+export const EVENT_SERVICES_OPTIONS: { key: EventServiceKey; label: string; description: string }[] = [
+  { key: 'buvette', label: 'Buvette & Café', description: "Boissons fraîches et café chaud dès l'aube" },
+  { key: 'restauration', label: 'Restauration', description: 'Sandwiches, frites & crêpes sur place' },
+  { key: 'sanitaires', label: 'Sanitaires', description: 'Toilettes publiques accessibles sur le site' },
+  { key: 'parking', label: 'Parking', description: 'Stationnement à proximité immédiate' },
+  { key: 'pmr', label: 'Accès PMR', description: 'Allées et cheminements adaptés' },
+];
+
 

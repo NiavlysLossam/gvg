@@ -50,6 +50,7 @@ export interface PublicEventResponse {
   public_end_time?: string | null;
   location_address?: string | null;
   organizer_email?: string | null;
+  services?: string[] | null;
   rules_text?: string | null;
   status: string;
   wms_url?: string | null;
@@ -80,6 +81,7 @@ export interface PublicEventListItem {
   public_start_time?: string | null;
   public_end_time?: string | null;
   location_address?: string | null;
+  services?: string[] | null;
   status: string;
   total_spots: number;
   available_spots: number;

@@ -1208,6 +1208,49 @@ def test_duplicate_event_preserves_wms_layers(client: TestClient):
     assert data["wms_layer"] == wms_layer
 
 
+def test_event_services_crud_and_duplication(client: TestClient):
+    """Test creating, updating, duplicating, and public viewing of event services."""
+    now = datetime.now(timezone.utc)
+    create_res = client.post(
+        "/api/v1/events",
+        json={
+            "title": "Vide-Grenier Services Test",
+            "start_date": (now + timedelta(days=10)).isoformat(),
+            "end_date": (now + timedelta(days=10, hours=8)).isoformat(),
+            "price_per_meter": 4.0,
+            "services": ["buvette", "parking", "pmr"],
+            "status": "published",
+        },
+    )
+    assert create_res.status_code == 201
+    event_data = create_res.json()
+    event_id = event_data["id"]
+    slug = event_data["slug"]
+    assert event_data["services"] == ["buvette", "parking", "pmr"]
+
+    # Check public endpoint returns services
+    pub_res = client.get(f"/api/v1/public/events/{slug}")
+    assert pub_res.status_code == 200
+    assert pub_res.json()["services"] == ["buvette", "parking", "pmr"]
+
+    # Update services
+    patch_res = client.patch(
+        f"/api/v1/events/{event_id}",
+        json={"services": ["restauration", "sanitaires"]},
+    )
+    assert patch_res.status_code == 200
+    assert patch_res.json()["services"] == ["restauration", "sanitaires"]
+
+    # Duplicate event preserves services
+    dup_res = client.post(
+        f"/api/v1/events/{event_id}/duplicate",
+        json={"title": "Vide-Grenier Services Clone"},
+    )
+    assert dup_res.status_code == 201
+    assert dup_res.json()["services"] == ["restauration", "sanitaires"]
+
+
+
 
 
 

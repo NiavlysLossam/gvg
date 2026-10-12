@@ -680,6 +680,7 @@ def duplicate_event(
         public_end_time=event.public_end_time,
         location_address=event.location_address,
         organizer_email=event.organizer_email,
+        services=list(event.services) if event.services else [],
         stripe_account_id=event.stripe_account_id,
         manual_approval_required=event.manual_approval_required,
         rules_text=event.rules_text,

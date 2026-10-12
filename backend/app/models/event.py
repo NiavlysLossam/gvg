@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, func, Uuid, ForeignKey
+from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, JSON, func, Uuid, ForeignKey
 from sqlalchemy.orm import relationship
 from app.core.database import Base
 
@@ -38,6 +38,7 @@ class Event(Base):
     # Location & contacts
     location_address = Column(String(500), nullable=True)
     organizer_email = Column(String(255), nullable=True)
+    services = Column(JSON, nullable=True, default=list)
 
     # Financial and management
     stripe_account_id = Column(String(255), nullable=True)

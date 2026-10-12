@@ -16,9 +16,10 @@ import {
   Save,
   Loader2,
   ImageIcon,
+  Coffee,
 } from 'lucide-react';
-import { EventModel, EventStatus, EventUpdateInput } from '../types/event';
-import { updateEvent, uploadEventPoster, deleteEventPoster, ApiError } from '../lib/api';
+import { EventModel, EventStatus, EventUpdateInput, EVENT_SERVICES_OPTIONS } from '../types/event';
+import { updateEvent, uploadEventPoster, deleteEventPoster, bulkUpdateSpotsPricing, ApiError } from '../lib/api';
 
 interface EventSettingsPageProps {
   event: EventModel;
@@ -62,6 +63,7 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
   const [publicEndTime, setPublicEndTime] = useState(event.public_end_time || '18:00');
   const [locationAddress, setLocationAddress] = useState(event.location_address || '');
   const [organizerEmail, setOrganizerEmail] = useState(event.organizer_email || '');
+  const [services, setServices] = useState<string[]>(event.services || []);
   const [pricePerMeter, setPricePerMeter] = useState<number>(
     event.price_per_meter ?? (event.price_per_meter_cents ? event.price_per_meter_cents / 100 : 4.0)
   );
@@ -69,6 +71,10 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
     Boolean(event.manual_approval_required)
   );
   const [rulesText, setRulesText] = useState(event.rules_text || '');
+
+  // Bulk spot pricing state
+  const [bulkFixedPrice, setBulkFixedPrice] = useState<string>('15');
+  const [applyingBulkPrice, setApplyingBulkPrice] = useState(false);
 
   // Poster upload state
   const [posterUrl, setPosterUrl] = useState<string | null>(event.poster_image_url || null);
@@ -90,6 +96,7 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
     setPublicEndTime(event.public_end_time || '18:00');
     setLocationAddress(event.location_address || '');
     setOrganizerEmail(event.organizer_email || '');
+    setServices(event.services || []);
     setPricePerMeter(
       event.price_per_meter ?? (event.price_per_meter_cents ? event.price_per_meter_cents / 100 : 4.0)
     );
@@ -212,6 +219,7 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
         public_end_time: publicEndTime.trim() || null,
         location_address: locationAddress.trim() || null,
         organizer_email: organizerEmail.trim() || null,
+        services: services,
         price_per_meter: pricePerMeter,
         manual_approval_required: manualApprovalRequired,
         rules_text: rulesText.trim() || null,
@@ -231,6 +239,40 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
       }
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleBulkPriceUpdate = async () => {
+    const priceNum = parseFloat(bulkFixedPrice);
+    if (isNaN(priceNum) || priceNum <= 0) {
+      setError('Veuillez saisir un tarif fixe valide strictement supérieur à 0 €.');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Confirmez-vous l'application du tarif fixe de ${priceNum.toFixed(2)} € à tous les stands disponibles ?\n\nLes stands déjà réservés ou liés à une commande active ne seront pas modifiés.`
+    );
+    if (!confirmed) return;
+
+    setError(null);
+    setSuccessMessage(null);
+    setApplyingBulkPrice(true);
+    try {
+      const res = await bulkUpdateSpotsPricing(event.id, priceNum);
+      setSuccessMessage(
+        `Tarif mis à jour avec succès : ${res.updated_count} stand(s) modifié(s) (${res.locked_skipped_count} stand(s) réservé(s) ou en commande ignoré(s)).`
+      );
+      setTimeout(() => setSuccessMessage(null), 6000);
+    } catch (err: unknown) {
+      if (err instanceof ApiError) {
+        setError(typeof err.detail === 'string' ? err.detail : JSON.stringify(err.detail));
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Une erreur est survenue lors de la mise à jour groupée des tarifs.');
+      }
+    } finally {
+      setApplyingBulkPrice(false);
     }
   };
 
@@ -661,11 +703,56 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
               </div>
             </div>
 
+            {/* Modification en masse du prix des stands (montant fixe) */}
+            <div className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900 flex items-center gap-1.5">
+                  <Euro className="w-4 h-4 text-amber-600" />
+                  <span>Modifier le prix de tous les stands d'un coup (montant fixe)</span>
+                </h3>
+                <p className="text-xs text-gray-600 mt-0.5 leading-relaxed">
+                  Applique un tarif unique fixe à l'ensemble des emplacements de l'événement.{' '}
+                  <strong>Les stands déjà réservés ou en cours de commande ne seront pas impactés.</strong>
+                </p>
+              </div>
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="relative w-full sm:w-48">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    value={bulkFixedPrice}
+                    onChange={(e) => setBulkFixedPrice(e.target.value)}
+                    placeholder="15.00"
+                    className="w-full px-3 py-2 border border-gray-300 bg-white rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500 outline-none text-sm font-bold text-gray-900 pr-12 transition"
+                  />
+                  <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-500 font-semibold text-xs">
+                    € / stand
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleBulkPriceUpdate}
+                  disabled={applyingBulkPrice}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition disabled:opacity-50"
+                >
+                  {applyingBulkPrice ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Application en cours...</span>
+                    </>
+                  ) : (
+                    <span>Appliquer aux stands disponibles</span>
+                  )}
+                </button>
+              </div>
+            </div>
+
             {/* Email contact organisateur */}
             <div className="pt-4 border-t border-gray-100">
               <label className="block text-sm font-semibold text-gray-700 mb-1 flex items-center gap-1.5">
                 <Mail className="w-4 h-4 text-emerald-600" />
-                Email de contact pour les exposants
+                E-mail de contact de l'événement (public)
               </label>
               <input
                 type="email"
@@ -675,6 +762,54 @@ export const EventSettingsPage: React.FC<EventSettingsPageProps> = ({
                 placeholder="contact@association-organisatrice.fr"
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none text-sm transition"
               />
+              <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                Astuce anti-spam : indiquez une adresse e-mail dédiée à l'événement (différente de votre e-mail de connexion admin). Elle est protégée contre les robots sur la page publique et recevra les réponses des exposants.
+              </p>
+            </div>
+
+            {/* Services présents sur place */}
+            <div className="pt-4 border-t border-gray-100 space-y-2.5">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+                  <Coffee className="w-4 h-4 text-emerald-600" />
+                  Services &amp; commodités présents sur place
+                </label>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Cochez les services disponibles pour les afficher sur la page grand public de l'événement :
+                </p>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                {EVENT_SERVICES_OPTIONS.map((srv) => {
+                  const checked = services.includes(srv.key);
+                  return (
+                    <label
+                      key={srv.key}
+                      className={`flex items-start gap-2.5 p-3 rounded-xl border cursor-pointer transition ${
+                        checked
+                          ? 'border-emerald-500 bg-emerald-50/50 text-emerald-950'
+                          : 'border-gray-200 hover:border-gray-300 bg-white text-gray-700'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setServices([...services, srv.key]);
+                          } else {
+                            setServices(services.filter((k) => k !== srv.key));
+                          }
+                        }}
+                        className="w-4 h-4 rounded text-emerald-600 border-gray-300 focus:ring-emerald-500 mt-0.5 cursor-pointer"
+                      />
+                      <div className="text-xs">
+                        <div className="font-bold">{srv.label}</div>
+                        <div className="text-gray-500 mt-0.5">{srv.description}</div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Règlement intérieur */}

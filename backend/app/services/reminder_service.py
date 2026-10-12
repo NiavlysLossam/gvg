@@ -258,6 +258,7 @@ def send_order_reminder_email(
             email_type=log_email_type,
             order_id=order_obj.id,
             event_id=event_obj.id,
+            reply_to=event_obj.organizer_email,
             db=session,
         )
     finally:

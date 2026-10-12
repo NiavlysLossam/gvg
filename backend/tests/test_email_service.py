@@ -847,3 +847,48 @@ def test_render_order_confirmation_pending_approval_template():
     assert "pré-autorisation bancaire" in html
     assert "En attente de validation" in txt or "validation" in txt.lower()
 
+
+def test_send_raw_email_includes_reply_to_header(db_session: Session, monkeypatch: pytest.MonkeyPatch):
+    """Verify send_raw_email includes Reply-To header when reply_to is provided."""
+    import email as email_module
+    import smtplib
+
+    monkeypatch.setattr(settings, "SMTP_HOST", "mail.fake.org")
+    monkeypatch.setattr(settings, "SMTP_PORT", 25)
+    monkeypatch.setattr(settings, "SMTP_USER", None)
+    monkeypatch.setattr(settings, "SMTP_PASSWORD", None)
+    monkeypatch.setattr(settings, "SMTP_SSL", False)
+    monkeypatch.setattr(settings, "SMTP_TLS", False)
+
+    sent_payloads = []
+
+    class MockSMTP:
+        def __init__(self, host, port, timeout=10):
+            pass
+
+        def sendmail(self, from_addr, to_addrs, msg_str):
+            sent_payloads.append((from_addr, to_addrs, msg_str))
+
+        def quit(self):
+            pass
+
+    monkeypatch.setattr(smtplib, "SMTP", MockSMTP)
+
+    log = email_service.send_raw_email(
+        recipient="exposant@example.com",
+        subject="Test Reply-To",
+        html_content="<p>Bonjour</p>",
+        text_content="Bonjour",
+        email_type="confirmation",
+        reply_to="contact-evenement@asso.fr",
+        db=db_session,
+    )
+
+    assert log is not None
+    assert log.status == "sent"
+    assert len(sent_payloads) == 1
+    _, _, raw_msg = sent_payloads[0]
+    parsed = email_module.message_from_string(raw_msg)
+    assert parsed["Reply-To"] == "contact-evenement@asso.fr"
+
+
