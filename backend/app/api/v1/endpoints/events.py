@@ -292,26 +292,15 @@ async def upload_background_image(
         )
     check_event_ownership(event, current_user)
 
-    ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/webp"}
+    ALLOWED_MIME_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp"}
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10 MB
 
-    content_type = (file.content_type or "").lower()
+    content_type = (file.content_type or "").split(";")[0].strip().lower()
     if content_type not in ALLOWED_MIME_TYPES:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Format non supporté (PNG, JPEG, WebP uniquement)",
         )
-
-    extension_map = {
-        "image/png": ".png",
-        "image/jpeg": ".jpg",
-        "image/webp": ".webp",
-    }
-    ext = extension_map.get(content_type, ".png")
-    if file.filename and "." in file.filename:
-        file_ext = Path(file.filename).suffix.lower()
-        if file_ext in [".png", ".jpg", ".jpeg", ".webp"]:
-            ext = file_ext
 
     contents = bytearray()
     total_size = 0
@@ -330,16 +319,16 @@ async def upload_background_image(
             detail="Le fichier téléversé est vide",
         )
 
-    # Validate image magic bytes to prevent spoofed content types
-    is_valid_image = False
+    # Validate image magic bytes to prevent spoofed content types and determine safe extension
+    ext: Optional[str] = None
     if contents.startswith(b"\x89PNG\r\n\x1a\n"):
-        is_valid_image = True
+        ext = ".png"
     elif contents.startswith(b"\xff\xd8\xff"):
-        is_valid_image = True
+        ext = ".jpg"
     elif contents.startswith(b"RIFF") and len(contents) >= 12 and contents[8:12] == b"WEBP":
-        is_valid_image = True
+        ext = ".webp"
 
-    if not is_valid_image:
+    if not ext:
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Le contenu du fichier n'est pas une image valide (PNG, JPEG, WebP attendu)",
@@ -348,7 +337,7 @@ async def upload_background_image(
     filename = f"{uuid.uuid4().hex}{ext}"
     bg_dir = settings.upload_dir_path / "backgrounds"
     bg_dir.mkdir(parents=True, exist_ok=True)
-    target_path = bg_dir / filename
+    target_path = (bg_dir / filename).resolve()
 
     from starlette.concurrency import run_in_threadpool
 
@@ -358,6 +347,7 @@ async def upload_background_image(
 
     await run_in_threadpool(_write_file)
 
+    old_bg = event.background_image_url
     event.background_image_url = f"/uploads/backgrounds/{filename}"
     event.map_type = "planar"
 
@@ -369,6 +359,19 @@ async def upload_background_image(
         if target_path.exists():
             target_path.unlink()
         raise exc
+
+    # Clean up prior locally uploaded background image if exists and distinct and not shared by another event
+    if old_bg and old_bg.startswith("/uploads/backgrounds/"):
+        bg_base = (settings.upload_dir_path / "backgrounds").resolve()
+        old_rel = old_bg.removeprefix("/uploads/backgrounds/").lstrip("/")
+        old_file = (bg_base / old_rel).resolve()
+        try:
+            if old_file.is_relative_to(bg_base) and old_file.is_file() and old_file != target_path:
+                other_events_using_bg = db.query(Event).filter(Event.background_image_url == old_bg, Event.id != event.id).count()
+                if other_events_using_bg == 0:
+                    old_file.unlink()
+        except (ValueError, OSError):
+            pass
 
     return event
 

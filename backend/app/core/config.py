@@ -9,6 +9,9 @@ class Settings(BaseSettings):
     API_V1_STR: str = "/api/v1"
     ENVIRONMENT: str = "development"
 
+    # Business / Anti-Hoarding Quotas
+    MAX_CART_SPOTS_PER_SESSION: int = 5
+
     # Database
     DATABASE_URL: str = "postgresql+psycopg://gvg:gvg_secret@localhost:5432/gvg"
     

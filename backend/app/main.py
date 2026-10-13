@@ -19,11 +19,14 @@ async def lifespan(app: FastAPI):
     yield
 
 
+# Restrict interactive documentation in production environments
+is_prod = (settings.ENVIRONMENT or "").strip().lower() in ("production", "prod")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url="/docs",
-    redoc_url="/redoc",
+    openapi_url=None if is_prod else f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None if is_prod else "/docs",
+    redoc_url=None if is_prod else "/redoc",
     lifespan=lifespan,
 )
 

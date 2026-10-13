@@ -4,9 +4,11 @@ from fastapi import APIRouter, Request, Header, HTTPException, Depends, status, 
 from sqlalchemy.orm import Session
 import stripe
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.models.event import Event
-from app.models.order import Order
+from app.models.spot import Spot
+from app.models.order import Order, BookingItem
 from app.services import stripe_service, email_service
 
 logger = logging.getLogger(__name__)
@@ -66,13 +68,92 @@ async def stripe_webhook(
         )
         currency = data_obj.get("currency") if isinstance(data_obj, dict) else getattr(data_obj, "currency", None)
 
-        confirmed_order = stripe_service.confirm_order_from_payment_intent(
-            db=db,
-            payment_intent_id=payment_intent_id,
-            order_id=order_id,
-            amount_received=amount_received,
-            currency=currency,
-        )
+        try:
+            confirmed_order = stripe_service.confirm_order_from_payment_intent(
+                db=db,
+                payment_intent_id=payment_intent_id,
+                order_id=order_id,
+                amount_received=amount_received,
+                currency=currency,
+            )
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_409_CONFLICT:
+                logger.error(
+                    "Spot collision (409) during payment_intent.succeeded for order %s (PI %s). Initiating emergency auto-refund: %s",
+                    order_id,
+                    payment_intent_id,
+                    exc.detail,
+                )
+                # Find order to record audit trail and mark refunded/cancelled
+                conflict_order = None
+                if order_id:
+                    try:
+                        conflict_order = db.query(Order).filter(Order.id == uuid.UUID(str(order_id))).first()
+                    except ValueError:
+                        pass
+                if not conflict_order and payment_intent_id:
+                    conflict_order = db.query(Order).filter(Order.stripe_payment_intent_id == payment_intent_id).first()
+
+                # Release any spots that were locked by this order's session or items back to available
+                if conflict_order:
+                    items = db.query(BookingItem).filter(BookingItem.order_id == conflict_order.id).all()
+                    order_spot_ids = [it.spot_id for it in items]
+                    if order_spot_ids:
+                        db.query(Spot).filter(
+                            Spot.id.in_(order_spot_ids),
+                            Spot.status == "locked",
+                        ).update(
+                            {
+                                "status": "available",
+                                "locked_until": None,
+                                "locked_by_token": None,
+                            },
+                            synchronize_session=False,
+                        )
+
+                # Issue immediate full Stripe refund
+                api_key = settings.STRIPE_SECRET_KEY
+                refund_id = None
+                refund_error = None
+                if api_key and payment_intent_id:
+                    try:
+                        refund_obj = stripe.Refund.create(
+                            payment_intent=payment_intent_id,
+                            api_key=api_key,
+                            idempotency_key=f"auto_refund_conflict_{payment_intent_id}",
+                        )
+                        refund_id = getattr(refund_obj, "id", None)
+                    except stripe.StripeError as s_exc:
+                        refund_error = str(s_exc)
+                        logger.error("Failed to execute emergency auto-refund on Stripe for PI %s: %s", payment_intent_id, s_exc)
+
+                if conflict_order:
+                    if refund_id:
+                        conflict_order.status = "refunded"
+                        note = "[Système] Conflit de stand lors du webhook de paiement : remboursement automatique effectué."
+                    else:
+                        conflict_order.status = "cancelled"
+                        note = f"[Alerte Sécurité] Conflit de stand lors du webhook (409) mais le remboursement Stripe automatique a échoué: {refund_error or 'Clé Stripe manquante'}. Action manuelle requise."
+
+                    conflict_order.admin_notes = f"{conflict_order.admin_notes}\n{note}".strip() if conflict_order.admin_notes else note
+                    conflict_order.stripe_payment_intent_id = payment_intent_id
+                    db.commit()
+
+                # If Stripe refund failed, re-raise 502 Bad Gateway to force Stripe to retry the webhook delivery
+                if not refund_id and not (isinstance(refund_error, str) and "already been refunded" in refund_error.lower()):
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Échec de l'auto-remboursement Stripe lors du conflit 409 : {refund_error or 'Clé API manquante'}",
+                    )
+
+                # Return 200 OK to Stripe to ack the event and avoid infinite webhook retries
+                return {
+                    "status": "conflict_refunded",
+                    "reason": "spot_already_taken",
+                    "detail": str(exc.detail),
+                    "refund_id": refund_id,
+                }
+            raise
 
         if not confirmed_order:
             logger.warning(
@@ -108,13 +189,83 @@ async def stripe_webhook(
         )
         currency = data_obj.get("currency") if isinstance(data_obj, dict) else getattr(data_obj, "currency", None)
 
-        held_order = stripe_service.hold_order_for_approval(
-            db=db,
-            payment_intent_id=payment_intent_id,
-            order_id=order_id,
-            amount_received=amount_capturable,
-            currency=currency,
-        )
+        try:
+            held_order = stripe_service.hold_order_for_approval(
+                db=db,
+                payment_intent_id=payment_intent_id,
+                order_id=order_id,
+                amount_received=amount_capturable,
+                currency=currency,
+            )
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_409_CONFLICT:
+                logger.error(
+                    "Spot collision (409) during amount_capturable_updated for order %s (PI %s). Canceling pre-authorization: %s",
+                    order_id,
+                    payment_intent_id,
+                    exc.detail,
+                )
+                cancel_success = False
+                cancel_error = None
+                api_key = settings.STRIPE_SECRET_KEY
+                if api_key and payment_intent_id:
+                    try:
+                        stripe.PaymentIntent.cancel(payment_intent_id, api_key=api_key)
+                        cancel_success = True
+                    except stripe.StripeError as s_exc:
+                        cancel_error = str(s_exc)
+                        if "already canceled" in cancel_error.lower() or "already been canceled" in cancel_error.lower():
+                            cancel_success = True
+                        else:
+                            logger.error("Failed to cancel PaymentIntent %s: %s", payment_intent_id, s_exc)
+
+                conflict_order = None
+                if order_id:
+                    try:
+                        conflict_order = db.query(Order).filter(Order.id == uuid.UUID(str(order_id))).first()
+                    except ValueError:
+                        pass
+                if not conflict_order and payment_intent_id:
+                    conflict_order = db.query(Order).filter(Order.stripe_payment_intent_id == payment_intent_id).first()
+
+                # Release any locked spots belonging to this order
+                if conflict_order:
+                    items = db.query(BookingItem).filter(BookingItem.order_id == conflict_order.id).all()
+                    order_spot_ids = [it.spot_id for it in items]
+                    if order_spot_ids:
+                        db.query(Spot).filter(
+                            Spot.id.in_(order_spot_ids),
+                            Spot.status == "locked",
+                        ).update(
+                            {
+                                "status": "available",
+                                "locked_until": None,
+                                "locked_by_token": None,
+                            },
+                            synchronize_session=False,
+                        )
+
+                    conflict_order.status = "cancelled"
+                    note = (
+                        "[Système] Conflit de stand lors du webhook de pré-autorisation : autorisation Stripe annulée."
+                        if cancel_success
+                        else f"[Alerte Sécurité] Conflit de stand (409) mais l'annulation de pré-autorisation Stripe a échoué: {cancel_error}. Action manuelle requise."
+                    )
+                    conflict_order.admin_notes = f"{conflict_order.admin_notes}\n{note}".strip() if conflict_order.admin_notes else note
+                    db.commit()
+
+                if not cancel_success:
+                    raise HTTPException(
+                        status_code=status.HTTP_502_BAD_GATEWAY,
+                        detail=f"Échec de l'annulation de pré-autorisation Stripe lors du conflit 409 : {cancel_error or 'Clé API manquante'}",
+                    )
+
+                return {
+                    "status": "conflict_cancelled",
+                    "reason": "spot_already_taken",
+                    "detail": str(exc.detail),
+                }
+            raise
 
         if not held_order:
             logger.warning(

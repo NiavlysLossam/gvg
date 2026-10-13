@@ -25,6 +25,8 @@ from app.schemas.order import GuestOrderCreate, OrderOut, PaymentIntentResponse,
 from app.services import stripe_service, email_service, pdf_service
 
 
+MAX_CART_SPOTS_PER_SESSION = settings.MAX_CART_SPOTS_PER_SESSION
+
 router = APIRouter()
 
 
@@ -402,6 +404,25 @@ def lock_public_spot(
             detail="Cet événement a été annulé. Les réservations sont fermées.",
         )
 
+    # Security (Anti-Hoarding): Enforce maximum stalls held per visitor session
+    active_held_spots = (
+        db.query(Spot.id)
+        .filter(
+            Spot.event_id == event.id,
+            Spot.status == "locked",
+            Spot.locked_by_token == token,
+            Spot.locked_until.is_not(None),
+            Spot.locked_until >= func.now(),
+        )
+        .all()
+    )
+    currently_held_ids = {s.id for s in active_held_spots}
+    if len(currently_held_ids) >= MAX_CART_SPOTS_PER_SESSION and spot_id not in currently_held_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Limite de réservation atteinte : vous ne pouvez pas réserver plus de {MAX_CART_SPOTS_PER_SESSION} stands simultanément.",
+        )
+
     bind = db.get_bind()
     is_pg = (bind.dialect.name == "postgresql") if bind else False
     locked_until_expr = (func.now() + text("INTERVAL '15 minutes'")) if is_pg else func.datetime("now", "+15 minutes")
@@ -611,6 +632,12 @@ def create_guest_order(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Votre réservation temporaire a expiré, veuillez resélectionner vos stands.",
+        )
+
+    if len(active_spots) > MAX_CART_SPOTS_PER_SESSION:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Limite de réservation dépassée : vous ne pouvez pas commander plus de {MAX_CART_SPOTS_PER_SESSION} stands simultanément.",
         )
 
     active_spot_ids = [s.id for s in active_spots]

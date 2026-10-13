@@ -16,6 +16,24 @@ from app.models.order import Order
 
 logger = logging.getLogger(__name__)
 
+# Security: Custom WeasyPrint URL fetcher that strictly forbids external HTTP(S) and local filesystem loading
+class StrictURLFetcher:
+    """Universal callable URL fetcher blocking all external network and local filesystem access (SSRF defense)."""
+    _fail_on_errors = False
+
+    def __call__(self, url, *args, **kwargs):
+        return self.fetch(url, *args, **kwargs)
+
+    def fetch(self, url, headers=None, *args, **kwargs):
+        # Allow safe inline data URIs if needed by badges or icons
+        if isinstance(url, str) and url.startswith("data:"):
+            if weasyprint is not None and hasattr(weasyprint, "urls") and hasattr(weasyprint.urls, "fetch"):
+                return weasyprint.urls.fetch(self, url)
+        logger.warning("Blocked potential SSRF or local file fetch in WeasyPrint: %s", url)
+        raise ValueError(f"External and local resource fetching is forbidden: {url}")
+
+strict_url_fetcher = StrictURLFetcher()
+
 PDF_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "templates" / "pdf"
 
 pdf_jinja_env = Environment(
@@ -114,10 +132,10 @@ def generate_attestation_pdf(order: Order, event: Event) -> bytes:
     template = pdf_jinja_env.get_template("attestation.html")
     html_content = template.render(**context)
 
-    # Compile HTML to PDF in memory using WeasyPrint
+    # Compile HTML to PDF in memory using WeasyPrint with SSRF protection
     if weasyprint is None:
         raise RuntimeError("WeasyPrint or required C libraries (libgobject/pango) are not available on this system.")
-    pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+    pdf_bytes = weasyprint.HTML(string=html_content, url_fetcher=strict_url_fetcher).write_pdf()
 
     return pdf_bytes
 
@@ -285,10 +303,10 @@ def generate_checkin_pdf(event: Event, orders: list[Order], sort_by: str = "spot
     template = pdf_jinja_env.get_template("checkin.html")
     html_content = template.render(**context)
 
-    # Compile HTML to PDF in memory using WeasyPrint
+    # Compile HTML to PDF in memory using WeasyPrint with SSRF protection
     if weasyprint is None:
         raise RuntimeError("WeasyPrint or required C libraries (libgobject/pango) are not available on this system.")
-    pdf_bytes = weasyprint.HTML(string=html_content).write_pdf()
+    pdf_bytes = weasyprint.HTML(string=html_content, url_fetcher=strict_url_fetcher).write_pdf()
     return pdf_bytes
 
 
