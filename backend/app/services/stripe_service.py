@@ -189,7 +189,7 @@ def confirm_order_from_payment_intent(
     spot_ids = [item.spot_id for item in booking_items]
 
     if spot_ids:
-        existing_spots = db.query(Spot).filter(Spot.id.in_(spot_ids)).all()
+        existing_spots = db.query(Spot).filter(Spot.id.in_(spot_ids)).with_for_update().all()
         if order.status == "pending":
             already_reserved = [s.label for s in existing_spots if s.status == "reserved"]
             if already_reserved:
@@ -321,12 +321,17 @@ def hold_order_for_approval(
             detail=f"Devise de paiement non supportée: {currency} (attendu: eur)",
         )
 
+    # Idempotent check: if order is already held in pending_approval, return it directly
+    if order.status == "pending_approval":
+        logger.info("Order %s already held in pending_approval, treating idempotently", order.order_number)
+        return order
+
     # Protect spots by transitioning them to 'reserved'
     booking_items = db.query(BookingItem).filter(BookingItem.order_id == order.id).all()
     spot_ids = [item.spot_id for item in booking_items]
 
     if spot_ids:
-        existing_spots = db.query(Spot).filter(Spot.id.in_(spot_ids)).all()
+        existing_spots = db.query(Spot).filter(Spot.id.in_(spot_ids)).with_for_update().all()
         already_reserved = [s.label for s in existing_spots if s.status == "reserved"]
         if already_reserved:
             logger.error(
@@ -599,10 +604,11 @@ def process_order_refund(
                         detail=f"Échec de l'annulation de l'autorisation Stripe : {exc}",
                     )
         else:
+            refund_suffix = f"_{amount_cents}" if amount_cents is not None else "_full"
             refund_kwargs: dict = {
                 "payment_intent": order.stripe_payment_intent_id,
                 "api_key": api_key,
-                "idempotency_key": f"refund_{order.id}",
+                "idempotency_key": f"refund_{order.id}{refund_suffix}",
             }
             if amount_cents is not None:
                 refund_kwargs["amount"] = amount_cents
@@ -641,24 +647,38 @@ def process_order_refund(
             order.payment_method,
         )
 
-    # 2. Release associated spots immediately
+    # 2. Release associated spots ONLY if full refund
+    is_full_refund = (amount_cents is None) or (amount_cents >= order.total_price_cents)
     booking_items = db.query(BookingItem).filter(BookingItem.order_id == order.id).all()
     spot_ids = [item.spot_id for item in booking_items]
-    if spot_ids:
-        stmt = (
-            update(Spot)
-            .where(Spot.id.in_(spot_ids))
-            .values(
-                status="available",
-                locked_until=None,
-                locked_by_token=None,
-                updated_at=func.now(),
-            )
-        )
-        db.execute(stmt)
 
-    # 3. Transition order status and record notes
-    order.status = "refunded"
+    if is_full_refund:
+        if spot_ids:
+            stmt = (
+                update(Spot)
+                .where(Spot.id.in_(spot_ids))
+                .values(
+                    status="available",
+                    locked_until=None,
+                    locked_by_token=None,
+                    updated_at=func.now(),
+                )
+            )
+            db.execute(stmt)
+        # Transition order status to refunded on full refund
+        order.status = "refunded"
+    else:
+        # If order was in cancellation_requested, partial refund settles arbitration back to confirmed
+        if order.status == "cancellation_requested":
+            order.status = "confirmed"
+        logger.info(
+            "Partial refund of %s cents on order %s (total: %s cents): preserving spots as reserved",
+            amount_cents,
+            order.order_number,
+            order.total_price_cents,
+        )
+
+    # 3. Record refund notes and update timestamps
     existing_notes = order.admin_notes or ""
     note_lines = []
     if existing_notes:
@@ -667,6 +687,9 @@ def process_order_refund(
         note_lines.append(f"Réf remboursement Stripe : {stripe_refund_id}")
     if order.payment_method in ("check", "cash", "other"):
         note_lines.append(f"Remboursement hors-ligne validé ({order.payment_method}).")
+    if not is_full_refund:
+        refund_eur = (amount_cents or 0) / 100.0
+        note_lines.append(f"Remboursement partiel validé : {refund_eur:.2f} € (stands conservés réservés).")
     if reason and reason.strip():
         note_lines.append(f"Motif du remboursement : {reason.strip()}")
 
@@ -677,7 +700,10 @@ def process_order_refund(
     db.add(order)
     db.commit()
     db.refresh(order)
-    logger.info("Order %s successfully refunded and %d spots released", order.order_number, len(spot_ids))
+    if is_full_refund:
+        logger.info("Order %s successfully refunded and %d spots released", order.order_number, len(spot_ids))
+    else:
+        logger.info("Order %s partially refunded (%s cents), %d spots kept reserved", order.order_number, amount_cents, len(spot_ids))
     return order
 
 

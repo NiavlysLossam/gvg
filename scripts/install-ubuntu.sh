@@ -115,24 +115,40 @@ elif [ -f "$SOURCE_ENV" ]; then
 elif [ -f "$SOURCE_ENV_EXAMPLE" ]; then
     log_info "No .env found. Initializing from $SOURCE_ENV_EXAMPLE..."
     cp "$SOURCE_ENV_EXAMPLE" "$TARGET_ENV"
-    # Generate a strong DB password
+    # Generate a strong DB password and a strong random JWT secret
     GENERATED_DB_PASS="$(openssl rand -hex 16)"
+    GENERATED_JWT_SECRET="$(openssl rand -hex 32)"
     sed -i -E "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$GENERATED_DB_PASS|" "$TARGET_ENV"
     sed -i -E "s|^DATABASE_URL=\"?postgresql\+psycopg://([^:]+):([^@]+)@([^:]+):5432/([^\"[:space:]]*)\"?|DATABASE_URL=postgresql+psycopg://\1:$GENERATED_DB_PASS@localhost:5432/\4|" "$TARGET_ENV"
+    sed -i -E "s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$GENERATED_JWT_SECRET|" "$TARGET_ENV"
     sed -i -E "s|^ENVIRONMENT=.*|ENVIRONMENT=production|" "$TARGET_ENV"
-    log_info "Strong database password generated in $TARGET_ENV."
+    log_info "Strong database password and JWT secret generated in $TARGET_ENV."
 else
     log_warn ".env.example not found. Creating default production configuration..."
     GENERATED_DB_PASS="$(openssl rand -hex 16)"
+    GENERATED_JWT_SECRET="$(openssl rand -hex 32)"
     cat > "$TARGET_ENV" <<EOF
 POSTGRES_USER=gvg
 POSTGRES_PASSWORD=$GENERATED_DB_PASS
 POSTGRES_DB=gvg
 DATABASE_URL=postgresql+psycopg://gvg:$GENERATED_DB_PASS@localhost:5432/gvg
+JWT_SECRET_KEY=$GENERATED_JWT_SECRET
 ENVIRONMENT=production
 PROJECT_NAME="GVG (Gestion de Vide-Greniers)"
 CORS_ORIGINS=http://localhost
 EOF
+fi
+
+# Ensure JWT_SECRET_KEY is present and not the default or template placeholder
+CURRENT_JWT_KEY=$(grep -E '^\s*JWT_SECRET_KEY=' "$TARGET_ENV" | head -n 1 | cut -d '=' -f2- | tr -d ' "' | tr -d "'" || true)
+if [ -z "$CURRENT_JWT_KEY" ] || [ "$CURRENT_JWT_KEY" = "gvg_default_insecure_jwt_secret_key_change_in_production" ] || [[ "$CURRENT_JWT_KEY" == *"changer_cette_cle"* ]] || [ ${#CURRENT_JWT_KEY} -lt 32 ]; then
+    GENERATED_JWT_SECRET="$(openssl rand -hex 32)"
+    if grep -q -E '^\s*JWT_SECRET_KEY=' "$TARGET_ENV"; then
+        sed -i -E "s|^JWT_SECRET_KEY=.*|JWT_SECRET_KEY=$GENERATED_JWT_SECRET|" "$TARGET_ENV"
+    else
+        echo "JWT_SECRET_KEY=$GENERATED_JWT_SECRET" >> "$TARGET_ENV"
+    fi
+    log_info "Secured JWT_SECRET_KEY automatically configured in $TARGET_ENV."
 fi
 
 chmod 600 "$TARGET_ENV"

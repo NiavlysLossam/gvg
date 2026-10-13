@@ -1,6 +1,6 @@
 import uuid
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, Query, Header, status, BackgroundTasks, Response
 from sqlalchemy.orm import Session, joinedload
@@ -615,8 +615,8 @@ def create_guest_order(
 
     active_spot_ids = [s.id for s in active_spots]
 
-    # Check for an existing pending order for these spots to avoid duplicate pending orders on double submission
-    existing_pending_order = (
+    # Check for existing pending orders touching any of these spots
+    existing_pending_orders = (
         db.query(Order)
         .join(BookingItem, BookingItem.order_id == Order.id)
         .filter(
@@ -625,10 +625,50 @@ def create_guest_order(
             BookingItem.spot_id.in_(active_spot_ids),
         )
         .options(joinedload(Order.items).joinedload(BookingItem.spot))
-        .first()
+        .all()
     )
-    if existing_pending_order:
-        return existing_pending_order
+
+    matching_order = None
+    payload_email_normalized = str(payload.email).strip().lower()
+
+    for pending_order in existing_pending_orders:
+        if pending_order.email and pending_order.email.strip().lower() == payload_email_normalized:
+            # Check if this pending order covers exactly the same spots
+            pending_spot_ids = {item.spot_id for item in pending_order.items}
+            if pending_spot_ids == set(active_spot_ids) and matching_order is None:
+                matching_order = pending_order
+            else:
+                # Surplus order or spot selection changed: cancel the old pending order
+                pending_order.status = "cancelled"
+                note = "[Système] Commande temporaire annulée suite à modification de sélection de stands."
+                pending_order.admin_notes = f"{pending_order.admin_notes}\n{note}".strip() if pending_order.admin_notes else note
+        else:
+            # Pending order belongs to a different email or expired session: cancel it to prevent PII leakage
+            pending_order.status = "cancelled"
+            note = "[Système] Commande temporaire non finalisée annulée suite à réattribution des stands."
+            pending_order.admin_notes = f"{pending_order.admin_notes}\n{note}".strip() if pending_order.admin_notes else note
+
+    if matching_order:
+        # Update contact info in case user updated it in the form
+        matching_order.first_name = payload.first_name
+        matching_order.last_name = payload.last_name
+        matching_order.phone = payload.phone
+        matching_order.street_address = payload.street_address
+        matching_order.postal_code = payload.postal_code
+        matching_order.city = payload.city
+        matching_order.honor_declaration_accepted = payload.honor_declaration_accepted
+        matching_order.updated_at = func.now()
+
+        # Extend spot locks by 15 minutes to allow payment completion
+        now = datetime.now(timezone.utc)
+        new_locked_until = now + timedelta(minutes=15)
+        for spot in active_spots:
+            spot.locked_until = new_locked_until
+            spot.updated_at = now
+
+        db.commit()
+        db.refresh(matching_order)
+        return matching_order
 
     # 2. Compute total amount
     total_cents = sum(spot.price_cents for spot in active_spots)

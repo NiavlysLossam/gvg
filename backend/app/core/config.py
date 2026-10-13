@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import List, Union, Optional
-from pydantic import AnyHttpUrl, field_validator
+from pydantic import AnyHttpUrl, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -66,6 +66,26 @@ class Settings(BaseSettings):
         elif isinstance(v, list):
             return v
         raise ValueError(v)
+
+    @model_validator(mode="after")
+    def validate_security_settings(self) -> "Settings":
+        env = (self.ENVIRONMENT or "development").strip().lower()
+        if env not in ("development", "test"):
+            insecure_defaults = (
+                "gvg_default_insecure_jwt_secret_key_change_in_production",
+                "changer_cette_cle_secrete_jwt_par_une_chaine_aleatoire_tres_longue",
+            )
+            key = self.JWT_SECRET_KEY or ""
+            if not key or key in insecure_defaults or "changer_cette_cle" in key or "insecure_jwt_secret" in key:
+                raise ValueError(
+                    f"CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET_KEY must be set to a secure custom secret in {env}! "
+                    "Refusing to start with a default or template insecure key."
+                )
+            if len(key) < 32:
+                raise ValueError(
+                    f"CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET_KEY must be at least 32 characters long in {env} (got {len(key)})."
+                )
+        return self
 
     model_config = SettingsConfigDict(
         env_file=".env",
