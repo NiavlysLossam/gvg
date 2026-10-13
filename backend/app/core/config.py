@@ -88,6 +88,14 @@ class Settings(BaseSettings):
                 raise ValueError(
                     f"CRITICAL SECURITY CONFIGURATION ERROR: JWT_SECRET_KEY must be at least 32 characters long in {env} (got {len(key)})."
                 )
+
+            # Prevent insecure CORS wildcard in production environments
+            cors = self.CORS_ORIGINS if isinstance(self.CORS_ORIGINS, list) else [self.CORS_ORIGINS]
+            cleaned_cors = [str(c).strip() for c in cors if str(c).strip()]
+            if "*" in cleaned_cors or any(c == "*" for c in cleaned_cors):
+                raise ValueError(
+                    f"CRITICAL SECURITY CONFIGURATION ERROR: Wildcard '*' is strictly forbidden in CORS_ORIGINS in {env}!"
+                )
         return self
 
     model_config = SettingsConfigDict(

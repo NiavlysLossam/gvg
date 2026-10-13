@@ -694,13 +694,19 @@ def test_stripe_webhook_spot_collision_rejected(client: TestClient, db_session: 
     raw_payload = json.dumps(event_payload)
     sig_header = stripe.WebhookSignature.generate_signature_header(raw_payload, TEST_WEBHOOK_SECRET)
 
-    res = client.post(
-        "/api/v1/webhooks/stripe",
-        content=raw_payload.encode("utf-8"),
-        headers={"Content-Type": "application/json", "Stripe-Signature": sig_header},
-    )
-    assert res.status_code == 409
-    assert "Conflit de réservation" in res.json()["detail"]
+    # When emergency auto-refund executes on Stripe, webhook handles conflict and returns 200 OK
+    mock_refund = MagicMock()
+    mock_refund.id = "re_collision_test"
+    with patch("stripe.Refund.create", return_value=mock_refund), \
+         patch("app.core.config.settings.STRIPE_SECRET_KEY", "sk_test_mock"):
+        res = client.post(
+            "/api/v1/webhooks/stripe",
+            content=raw_payload.encode("utf-8"),
+            headers={"Content-Type": "application/json", "Stripe-Signature": sig_header},
+        )
+        assert res.status_code == 200
+        assert res.json()["status"] == "conflict_refunded"
+        assert res.json()["refund_id"] == "re_collision_test"
 
 
 def test_stripe_webhook_missing_secret_raises_500(client: TestClient, monkeypatch):
