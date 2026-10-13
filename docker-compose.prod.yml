@@ -23,7 +23,7 @@ services:
       dockerfile: Dockerfile
     container_name: gvg-backend-prod
     restart: always
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2 --proxy-headers --forwarded-allow-ips='*'
     env_file:
       - .env
     environment:
